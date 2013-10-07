@@ -1,0 +1,7 @@
+(C) 2013 TripNDroid Mobile Engineering
+-------------
+
+Repo for native ffmpeg integration into Android.
+----------------
+
+Repo contains external ffmpeg codecs and some libs will be builded from this repo.
