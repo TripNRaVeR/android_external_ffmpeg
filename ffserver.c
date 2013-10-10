@@ -36,7 +36,6 @@
 #include "libavformat/network.h"
 #include "libavformat/os_support.h"
 #include "libavformat/rtpdec.h"
-#include "libavformat/rtpproto.h"
 #include "libavformat/rtsp.h"
 #include "libavformat/avio_internal.h"
 #include "libavformat/internal.h"
@@ -64,6 +63,9 @@
 #include <time.h>
 #include <sys/wait.h>
 #include <signal.h>
+#if HAVE_DLFCN_H
+#include <dlfcn.h>
+#endif
 
 #include "cmdutils.h"
 
@@ -306,7 +308,7 @@ static int rtp_new_av_stream(HTTPContext *c,
 
 static const char *my_program_name;
 
-static const char *config_filename;
+static const char *config_filename = "/etc/ffserver.conf";
 
 static int ffserver_debug;
 static int no_launch;
@@ -394,14 +396,14 @@ static int resolve_host(struct in_addr *sin_addr, const char *hostname)
     return 0;
 }
 
-static char *ctime1(char *buf2, int buf_size)
+static char *ctime1(char *buf2)
 {
     time_t ti;
     char *p;
 
     ti = time(NULL);
     p = ctime(&ti);
-    av_strlcpy(buf2, p, buf_size);
+    strcpy(buf2, p);
     p = buf2 + strlen(p) - 1;
     if (*p == '\n')
         *p = '\0';
@@ -414,7 +416,7 @@ static void http_vlog(const char *fmt, va_list vargs)
     if (logfile) {
         if (print_prefix) {
             char buf[32];
-            ctime1(buf, sizeof(buf));
+            ctime1(buf);
             fprintf(logfile, "%s ", buf);
         }
         print_prefix = strstr(fmt, "\n") != NULL;
@@ -3904,7 +3906,7 @@ static void add_codec(FFStream *stream, AVCodecContext *av)
         av->rc_buffer_aggressivity = 1.0;
 
         if (!av->rc_eq)
-            av->rc_eq = av_strdup("tex^qComp");
+            av->rc_eq = "tex^qComp";
         if (!av->i_quant_factor)
             av->i_quant_factor = -0.8;
         if (!av->b_quant_factor)
@@ -3951,6 +3953,32 @@ static enum AVCodecID opt_video_codec(const char *arg)
 
     return p->id;
 }
+
+/* simplistic plugin support */
+
+#if HAVE_DLOPEN
+static void load_module(const char *filename)
+{
+    void *dll;
+    void (*init_func)(void);
+    dll = dlopen(filename, RTLD_NOW);
+    if (!dll) {
+        fprintf(stderr, "Could not load module '%s' - %s\n",
+                filename, dlerror());
+        return;
+    }
+
+    init_func = dlsym(dll, "ffserver_module_init");
+    if (!init_func) {
+        fprintf(stderr,
+                "%s: init function 'ffserver_module_init()' not found\n",
+                filename);
+        dlclose(dll);
+    }
+
+    init_func();
+}
+#endif
 
 static int ffserver_opt_default(const char *opt, const char *arg,
                        AVCodecContext *avctx, int type)
@@ -4123,7 +4151,7 @@ static int parse_ffconfig(const char *filename)
         } else if (!av_strcasecmp(cmd, "MaxBandwidth")) {
             int64_t llval;
             get_arg(arg, sizeof(arg), &p);
-            llval = strtoll(arg, NULL, 10);
+            llval = atoll(arg);
             if (llval < 10 || llval > 10000000) {
                 ERROR("Invalid MaxBandwidth: %s\n", arg);
             } else
@@ -4517,6 +4545,14 @@ static int parse_ffconfig(const char *filename)
                     ERROR("VideoQMin out of range\n");
                 }
             }
+        } else if (!av_strcasecmp(cmd, "LumaElim")) {
+            get_arg(arg, sizeof(arg), &p);
+            if (stream)
+                video_enc.luma_elim_threshold = atoi(arg);
+        } else if (!av_strcasecmp(cmd, "ChromaElim")) {
+            get_arg(arg, sizeof(arg), &p);
+            if (stream)
+                video_enc.chroma_elim_threshold = atoi(arg);
         } else if (!av_strcasecmp(cmd, "LumiMask")) {
             get_arg(arg, sizeof(arg), &p);
             if (stream)
@@ -4608,7 +4644,12 @@ static int parse_ffconfig(const char *filename)
                 redirect = NULL;
             }
         } else if (!av_strcasecmp(cmd, "LoadModule")) {
-            ERROR("Loadable modules no longer supported\n");
+            get_arg(arg, sizeof(arg), &p);
+#if HAVE_DLOPEN
+            load_module(arg);
+#else
+            ERROR("Module support not compiled into this version: '%s'\n", arg);
+#endif
         } else {
             ERROR("Incorrect keyword: '%s'\n", cmd);
         }
@@ -4673,8 +4714,6 @@ int main(int argc, char **argv)
 {
     struct sigaction sigact = { { 0 } };
 
-    config_filename = av_strdup("/etc/ffserver.conf");
-
     parse_loglevel(argc, argv, options);
     av_register_all();
     avformat_network_init();
@@ -4697,7 +4736,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "Incorrect config file - exiting.\n");
         exit(1);
     }
-    av_freep(&config_filename);
 
     /* open log file if needed */
     if (logfilename[0] != '\0') {
