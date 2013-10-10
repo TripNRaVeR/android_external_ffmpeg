@@ -28,7 +28,6 @@
 #include "bytestream.h"
 #include "get_bits.h"
 #include "dsputil.h"
-#include "internal.h"
 
 #define TM2_ESCAPE 0x80000000
 #define TM2_DELTAS 64
@@ -58,7 +57,7 @@ enum TM2_BLOCKS {
 
 typedef struct TM2Context {
     AVCodecContext *avctx;
-    AVFrame *pic;
+    AVFrame pic;
 
     GetBitContext gb;
     DSPContext dsp;
@@ -173,11 +172,6 @@ static int tm2_build_huff_table(TM2Context *ctx, TM2Codes *code)
     huff.bits    = av_mallocz(huff.max_num * sizeof(uint32_t));
     huff.lens    = av_mallocz(huff.max_num * sizeof(int));
 
-    if (!huff.nums || !huff.bits || !huff.lens) {
-        res = AVERROR(ENOMEM);
-        goto fail;
-    }
-
     res = tm2_read_tree(ctx, 0, 0, &huff);
 
     if (huff.num != huff.max_num) {
@@ -199,15 +193,10 @@ static int tm2_build_huff_table(TM2Context *ctx, TM2Codes *code)
             code->bits = huff.max_bits;
             code->length = huff.max_num;
             code->recode = av_malloc(code->length * sizeof(int));
-            if (!code->recode) {
-                res = AVERROR(ENOMEM);
-                goto fail;
-            }
             for (i = 0; i < code->length; i++)
                 code->recode[i] = huff.nums[i];
         }
     }
-fail:
     /* free allocated memory */
     av_free(huff.nums);
     av_free(huff.bits);
@@ -241,7 +230,7 @@ static inline int tm2_read_header(TM2Context *ctx, const uint8_t *buf)
 
     switch (magic) {
     case TM2_OLD_HEADER_MAGIC:
-        avpriv_request_sample(ctx->avctx, "Old TM2 header");
+        av_log_missing_feature(ctx->avctx, "TM2 old header", 1);
         return 0;
     case TM2_NEW_HEADER_MAGIC:
         return 0;
@@ -868,7 +857,7 @@ static int decode_frame(AVCodecContext *avctx,
     TM2Context * const l = avctx->priv_data;
     const uint8_t *buf   = avpkt->data;
     int buf_size         = avpkt->size & ~3;
-    AVFrame * const p    = l->pic;
+    AVFrame * const p    = &l->pic;
     int offset           = TM2_HEADER_SIZE;
     int i, t, ret;
 
@@ -877,9 +866,12 @@ static int decode_frame(AVCodecContext *avctx,
         av_log(avctx, AV_LOG_ERROR, "Cannot allocate temporary buffer\n");
         return AVERROR(ENOMEM);
     }
-
-    if ((ret = ff_reget_buffer(avctx, p)) < 0)
+    p->reference = 3;
+    p->buffer_hints = FF_BUFFER_HINTS_VALID | FF_BUFFER_HINTS_PRESERVE | FF_BUFFER_HINTS_REUSABLE;
+    if ((ret = avctx->reget_buffer(avctx, p)) < 0) {
+        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
+    }
 
     l->dsp.bswap_buf((uint32_t*)l->buffer, (const uint32_t*)buf, buf_size >> 2);
 
@@ -910,9 +902,9 @@ static int decode_frame(AVCodecContext *avctx,
 
     l->cur = !l->cur;
     *got_frame      = 1;
-    ret = av_frame_ref(data, l->pic);
+    *(AVFrame*)data = l->pic;
 
-    return (ret < 0) ? ret : buf_size;
+    return buf_size;
 }
 
 static av_cold int decode_init(AVCodecContext *avctx)
@@ -926,10 +918,9 @@ static av_cold int decode_init(AVCodecContext *avctx)
     }
 
     l->avctx       = avctx;
+    l->pic.data[0] = NULL;
     avctx->pix_fmt = AV_PIX_FMT_BGR24;
-    l->pic = av_frame_alloc();
-    if (!l->pic)
-        return AVERROR(ENOMEM);
+    avcodec_get_frame_defaults(&l->pic);
 
     ff_dsputil_init(&l->dsp, avctx);
 
@@ -965,7 +956,6 @@ static av_cold int decode_init(AVCodecContext *avctx)
         av_freep(l->V2_base);
         av_freep(l->last);
         av_freep(l->clast);
-        av_frame_free(&l->pic);
         return AVERROR(ENOMEM);
     }
     l->Y1 = l->Y1_base + l->y_stride  * 4 + 4;
@@ -981,6 +971,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
 static av_cold int decode_end(AVCodecContext *avctx)
 {
     TM2Context * const l = avctx->priv_data;
+    AVFrame *pic = &l->pic;
     int i;
 
     av_free(l->last);
@@ -998,7 +989,8 @@ static av_cold int decode_end(AVCodecContext *avctx)
     av_freep(&l->buffer);
     l->buffer_size = 0;
 
-    av_frame_free(&l->pic);
+    if (pic->data[0])
+        avctx->release_buffer(avctx, pic);
 
     return 0;
 }

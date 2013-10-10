@@ -290,7 +290,7 @@ static int parse_frame_header(AC3DecodeContext *s)
         return ff_eac3_parse_header(s);
     } else {
         av_log(s->avctx, AV_LOG_ERROR, "E-AC-3 support not compiled in\n");
-        return AVERROR(ENOSYS);
+        return -1;
     }
 }
 
@@ -429,7 +429,7 @@ static void ac3_decode_transform_coeffs_ch(AC3DecodeContext *s, int ch_index, ma
     int end_freq   = s->end_freq[ch_index];
     uint8_t *baps  = s->bap[ch_index];
     int8_t *exps   = s->dexps[ch_index];
-    int32_t *coeffs = s->fixed_coeffs[ch_index];
+    int *coeffs    = s->fixed_coeffs[ch_index];
     int dither     = (ch_index == CPL_CH) || s->dither_flag[ch_index];
     GetBitContext *gbc = &s->gbc;
     int freq;
@@ -786,12 +786,12 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
             if (start_subband >= end_subband) {
                 av_log(s->avctx, AV_LOG_ERROR, "invalid spectral extension "
                        "range (%d >= %d)\n", start_subband, end_subband);
-                return AVERROR_INVALIDDATA;
+                return -1;
             }
             if (dst_start_freq >= src_start_freq) {
                 av_log(s->avctx, AV_LOG_ERROR, "invalid spectral extension "
                        "copy start bin (%d >= %d)\n", dst_start_freq, src_start_freq);
-                return AVERROR_INVALIDDATA;
+                return -1;
             }
 
             s->spx_dst_start_freq = dst_start_freq;
@@ -868,13 +868,13 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
 
             if (channel_mode < AC3_CHMODE_STEREO) {
                 av_log(s->avctx, AV_LOG_ERROR, "coupling not allowed in mono or dual-mono\n");
-                return AVERROR_INVALIDDATA;
+                return -1;
             }
 
             /* check for enhanced coupling */
             if (s->eac3 && get_bits1(gbc)) {
                 /* TODO: parse enhanced coupling strategy info */
-                avpriv_request_sample(s->avctx, "Enhanced coupling");
+                av_log_missing_feature(s->avctx, "Enhanced coupling", 1);
                 return AVERROR_PATCHWELCOME;
             }
 
@@ -898,7 +898,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
             if (cpl_start_subband >= cpl_end_subband) {
                 av_log(s->avctx, AV_LOG_ERROR, "invalid coupling range (%d >= %d)\n",
                        cpl_start_subband, cpl_end_subband);
-                return AVERROR_INVALIDDATA;
+                return -1;
             }
             s->start_freq[CPL_CH] = cpl_start_subband * 12 + 37;
             s->end_freq[CPL_CH]   = cpl_end_subband   * 12 + 37;
@@ -920,7 +920,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
         if (!blk) {
             av_log(s->avctx, AV_LOG_ERROR, "new coupling strategy must "
                    "be present in block 0\n");
-            return AVERROR_INVALIDDATA;
+            return -1;
         } else {
             s->cpl_in_use[blk] = s->cpl_in_use[blk-1];
         }
@@ -950,7 +950,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
                 } else if (!blk) {
                     av_log(s->avctx, AV_LOG_ERROR, "new coupling coordinates must "
                            "be present in block 0\n");
-                    return AVERROR_INVALIDDATA;
+                    return -1;
                 }
             } else {
                 /* channel not in coupling */
@@ -1005,7 +1005,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
                 int bandwidth_code = get_bits(gbc, 6);
                 if (bandwidth_code > 60) {
                     av_log(s->avctx, AV_LOG_ERROR, "bandwidth code = %d > 60\n", bandwidth_code);
-                    return AVERROR_INVALIDDATA;
+                    return -1;
                 }
                 s->end_freq[ch] = bandwidth_code * 3 + 73;
             }
@@ -1028,7 +1028,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
                                  s->num_exp_groups[ch], s->dexps[ch][0],
                                  &s->dexps[ch][s->start_freq[ch]+!!ch])) {
                 av_log(s->avctx, AV_LOG_ERROR, "exponent out-of-range\n");
-                return AVERROR_INVALIDDATA;
+                return -1;
             }
             if (ch != CPL_CH && ch != s->lfe_ch)
                 skip_bits(gbc, 2); /* skip gainrng */
@@ -1048,7 +1048,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
         } else if (!blk) {
             av_log(s->avctx, AV_LOG_ERROR, "new bit allocation info must "
                    "be present in block 0\n");
-            return AVERROR_INVALIDDATA;
+            return -1;
         }
     }
 
@@ -1079,7 +1079,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
             }
         } else if (!s->eac3 && !blk) {
             av_log(s->avctx, AV_LOG_ERROR, "new snr offsets must be present in block 0\n");
-            return AVERROR_INVALIDDATA;
+            return -1;
         }
     }
 
@@ -1118,7 +1118,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
         } else if (!s->eac3 && !blk) {
             av_log(s->avctx, AV_LOG_ERROR, "new coupling leak info must "
                    "be present in block 0\n");
-            return AVERROR_INVALIDDATA;
+            return -1;
         }
         s->first_cpl_leak = 0;
     }
@@ -1130,7 +1130,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
             s->dba_mode[ch] = get_bits(gbc, 2);
             if (s->dba_mode[ch] == DBA_RESERVED) {
                 av_log(s->avctx, AV_LOG_ERROR, "delta bit allocation strategy reserved\n");
-                return AVERROR_INVALIDDATA;
+                return -1;
             }
             bit_alloc_stages[ch] = FFMAX(bit_alloc_stages[ch], 2);
         }
@@ -1171,7 +1171,7 @@ static int decode_audio_block(AC3DecodeContext *s, int blk)
                                            s->dba_offsets[ch], s->dba_lengths[ch],
                                            s->dba_values[ch],  s->mask[ch])) {
                 av_log(s->avctx, AV_LOG_ERROR, "error in bit allocation\n");
-                return AVERROR_INVALIDDATA;
+                return -1;
             }
         }
         if (bit_alloc_stages[ch] > 0) {
@@ -1291,7 +1291,7 @@ static int ac3_decode_frame(AVCodecContext * avctx, void *data,
         switch (err) {
         case AAC_AC3_PARSE_ERROR_SYNC:
             av_log(avctx, AV_LOG_ERROR, "frame sync error\n");
-            return AVERROR_INVALIDDATA;
+            return -1;
         case AAC_AC3_PARSE_ERROR_BSID:
             av_log(avctx, AV_LOG_ERROR, "invalid bitstream id\n");
             break;
@@ -1305,20 +1305,17 @@ static int ac3_decode_frame(AVCodecContext * avctx, void *data,
             /* skip frame if CRC is ok. otherwise use error concealment. */
             /* TODO: add support for substreams and dependent frames */
             if (s->frame_type == EAC3_FRAME_TYPE_DEPENDENT || s->substreamid) {
-                av_log(avctx, AV_LOG_WARNING, "unsupported frame type : "
+                av_log(avctx, AV_LOG_ERROR, "unsupported frame type : "
                        "skipping frame\n");
                 *got_frame_ptr = 0;
-                return buf_size;
+                return s->frame_size;
             } else {
                 av_log(avctx, AV_LOG_ERROR, "invalid frame type\n");
             }
             break;
-        case AAC_AC3_PARSE_ERROR_CRC:
-        case AAC_AC3_PARSE_ERROR_CHANNEL_CFG:
+        default:
+            av_log(avctx, AV_LOG_ERROR, "invalid header\n");
             break;
-        default: // Normal AVERROR do not try to recover.
-            *got_frame_ptr = 0;
-            return err;
         }
     } else {
         /* check that reported frame size fits in input buffer */
@@ -1377,9 +1374,11 @@ static int ac3_decode_frame(AVCodecContext * avctx, void *data,
         avctx->audio_service_type = AV_AUDIO_SERVICE_TYPE_KARAOKE;
 
     /* get output buffer */
-    frame->nb_samples = s->num_blocks * AC3_BLOCK_SIZE;
-    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
+    frame->nb_samples = s->num_blocks * 256;
+    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
+        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
+    }
 
     /* decode the audio blocks */
     channel_map = ff_ac3_dec_channel_map[s->output_mode & ~AC3_OUTPUT_LFEON][s->lfe_on];
@@ -1398,7 +1397,7 @@ static int ac3_decode_frame(AVCodecContext * avctx, void *data,
         }
         if (err)
             for (ch = 0; ch < s->out_channels; ch++)
-                memcpy(((float*)frame->data[ch]) + AC3_BLOCK_SIZE*blk, output[ch], sizeof(**output) * AC3_BLOCK_SIZE);
+                memcpy(((float*)frame->data[ch]) + AC3_BLOCK_SIZE*blk, output[ch], 1024);
         for (ch = 0; ch < s->out_channels; ch++)
             output[ch] = s->outptr[channel_map[ch]];
         for (ch = 0; ch < s->out_channels; ch++) {
@@ -1411,7 +1410,7 @@ static int ac3_decode_frame(AVCodecContext * avctx, void *data,
 
     /* keep last block for error concealment in next frame */
     for (ch = 0; ch < s->out_channels; ch++)
-        memcpy(s->output[ch], output[ch], sizeof(**output) * AC3_BLOCK_SIZE);
+        memcpy(s->output[ch], output[ch], 1024);
 
     *got_frame_ptr = 1;
 

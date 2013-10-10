@@ -26,8 +26,7 @@
 
 #include "avformat.h"
 
-#define MOV_FRAG_INFO_ALLOC_INCREMENT 64
-#define MOV_INDEX_CLUSTER_SIZE 1024
+#define MOV_INDEX_CLUSTER_SIZE 16384
 #define MOV_TIMESCALE 1000
 
 #define RTP_MAX_PACKET_SIZE 1450
@@ -76,7 +75,7 @@ typedef struct MOVFragmentInfo {
     int64_t tfrf_offset;
 } MOVFragmentInfo;
 
-typedef struct MOVTrack {
+typedef struct MOVIndex {
     int         mode;
     int         entry;
     unsigned    timescale;
@@ -89,13 +88,13 @@ typedef struct MOVTrack {
     int         has_keyframes;
 #define MOV_TRACK_CTTS         0x0001
 #define MOV_TRACK_STPS         0x0002
-#define MOV_TRACK_ENABLED      0x0004
     uint32_t    flags;
 #define MOV_TIMECODE_FLAG_DROPFRAME     0x0001
 #define MOV_TIMECODE_FLAG_24HOURSMAX    0x0002
 #define MOV_TIMECODE_FLAG_ALLOWNEGATIVE 0x0004
     uint32_t    timecode_flags;
     int         language;
+    int         secondary;
     int         track_id;
     int         tag; ///< stsd fourcc
     AVCodecContext *enc;
@@ -103,7 +102,6 @@ typedef struct MOVTrack {
     int         vos_len;
     uint8_t     *vos_data;
     MOVIentry   *cluster;
-    unsigned    cluster_capacity;
     int         audio_vbr;
     int         height; ///< active picture (w/o VBI) height for D-10/IMX
     uint32_t    tref_tag;
@@ -131,7 +129,6 @@ typedef struct MOVTrack {
 
     int         nb_frag_info;
     MOVFragmentInfo *frag_info;
-    unsigned    frag_info_capacity;
 
     struct {
         int64_t struct_offset;
@@ -156,6 +153,8 @@ typedef struct MOVMuxContext {
 
     int flags;
     int rtp_flags;
+    int reserved_moov_size; ///< 0 for disabled, -1 for automatic, size otherwise
+    int64_t reserved_moov_pos;
 
     int iods_skip;
     int iods_video_profile;
@@ -169,10 +168,6 @@ typedef struct MOVMuxContext {
     AVIOContext *mdat_buf;
 
     int use_editlist;
-    int video_track_timescale;
-
-    int reserved_moov_size; ///< 0 for disabled, -1 for automatic, size otherwise
-    int64_t reserved_moov_pos;
 } MOVMuxContext;
 
 #define FF_MOV_FLAG_RTP_HINT 1

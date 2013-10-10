@@ -26,7 +26,6 @@
 #include "libavutil/x86/asm.h"
 #include "libavutil/x86/cpu.h"
 #include "libavutil/cpu.h"
-#include "libavutil/cpu_internal.h"
 
 #if HAVE_YASM
 

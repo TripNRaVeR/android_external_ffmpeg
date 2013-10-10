@@ -41,7 +41,6 @@
 #include "libavutil/internal.h"
 #include "libavutil/intreadwrite.h"
 #include "avcodec.h"
-#include "internal.h"
 
 typedef struct RpzaContext {
 
@@ -85,7 +84,7 @@ static void rpza_decode_stream(RpzaContext *s)
     unsigned short *pixels = (unsigned short *)s->frame.data[0];
 
     int row_ptr = 0;
-    int pixel_ptr = -4;
+    int pixel_ptr = 0;
     int block_ptr;
     int pixel_x, pixel_y;
     int total_blocks;
@@ -141,7 +140,6 @@ static void rpza_decode_stream(RpzaContext *s)
             colorA = AV_RB16 (&s->buf[stream_ptr]);
             stream_ptr += 2;
             while (n_blocks--) {
-                ADVANCE_BLOCK()
                 block_ptr = row_ptr + pixel_ptr;
                 for (pixel_y = 0; pixel_y < 4; pixel_y++) {
                     for (pixel_x = 0; pixel_x < 4; pixel_x++){
@@ -150,6 +148,7 @@ static void rpza_decode_stream(RpzaContext *s)
                     }
                     block_ptr += row_inc;
                 }
+                ADVANCE_BLOCK();
             }
             break;
 
@@ -188,7 +187,6 @@ static void rpza_decode_stream(RpzaContext *s)
             if (s->size - stream_ptr < n_blocks * 4)
                 return;
             while (n_blocks--) {
-                ADVANCE_BLOCK();
                 block_ptr = row_ptr + pixel_ptr;
                 for (pixel_y = 0; pixel_y < 4; pixel_y++) {
                     index = s->buf[stream_ptr++];
@@ -199,6 +197,7 @@ static void rpza_decode_stream(RpzaContext *s)
                     }
                     block_ptr += row_inc;
                 }
+                ADVANCE_BLOCK();
             }
             break;
 
@@ -206,7 +205,6 @@ static void rpza_decode_stream(RpzaContext *s)
         case 0x00:
             if (s->size - stream_ptr < 16)
                 return;
-            ADVANCE_BLOCK();
             block_ptr = row_ptr + pixel_ptr;
             for (pixel_y = 0; pixel_y < 4; pixel_y++) {
                 for (pixel_x = 0; pixel_x < 4; pixel_x++){
@@ -220,6 +218,7 @@ static void rpza_decode_stream(RpzaContext *s)
                 }
                 block_ptr += row_inc;
             }
+            ADVANCE_BLOCK();
             break;
 
         /* Unknown opcode */
@@ -240,6 +239,7 @@ static av_cold int rpza_decode_init(AVCodecContext *avctx)
     avctx->pix_fmt = AV_PIX_FMT_RGB555;
 
     avcodec_get_frame_defaults(&s->frame);
+    s->frame.data[0] = NULL;
 
     return 0;
 }
@@ -256,15 +256,17 @@ static int rpza_decode_frame(AVCodecContext *avctx,
     s->buf = buf;
     s->size = buf_size;
 
-    if ((ret = ff_reget_buffer(avctx, &s->frame)) < 0)
+    s->frame.reference = 3;
+    s->frame.buffer_hints = FF_BUFFER_HINTS_VALID | FF_BUFFER_HINTS_PRESERVE | FF_BUFFER_HINTS_REUSABLE;
+    if ((ret = avctx->reget_buffer(avctx, &s->frame)) < 0) {
+        av_log(avctx, AV_LOG_ERROR, "reget_buffer() failed\n");
         return ret;
+    }
 
     rpza_decode_stream(s);
 
-    if ((ret = av_frame_ref(data, &s->frame)) < 0)
-        return ret;
-
     *got_frame      = 1;
+    *(AVFrame*)data = s->frame;
 
     /* always report that the buffer was completely consumed */
     return buf_size;
@@ -274,7 +276,8 @@ static av_cold int rpza_decode_end(AVCodecContext *avctx)
 {
     RpzaContext *s = avctx->priv_data;
 
-    av_frame_unref(&s->frame);
+    if (s->frame.data[0])
+        avctx->release_buffer(avctx, &s->frame);
 
     return 0;
 }

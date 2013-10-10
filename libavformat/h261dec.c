@@ -33,7 +33,7 @@ static int h261_probe(AVProbeData *p)
     int src_fmt=0;
     GetBitContext gb;
 
-    init_get_bits8(&gb, p->buf, p->buf_size);
+    init_get_bits(&gb, p->buf, p->buf_size*8);
 
     for(i=0; i<p->buf_size*8; i++){
         if ((code & 0x01ff0000) || !(code & 0xff00)) {
@@ -56,9 +56,9 @@ static int h261_probe(AVProbeData *p)
         }
     }
     if(valid_psc > 2*invalid_psc + 6){
-        return AVPROBE_SCORE_EXTENSION;
+        return 50;
     }else if(valid_psc > 2*invalid_psc + 2)
-        return AVPROBE_SCORE_EXTENSION / 2;
+        return 25;
     return 0;
 }
 

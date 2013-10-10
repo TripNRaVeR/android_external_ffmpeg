@@ -34,7 +34,6 @@
 #include "avcodec.h"
 #include "get_bits.h"
 #include "dsputil.h"
-#include "hpeldsp.h"
 
 #define MAX_COMPONENTS 4
 
@@ -65,8 +64,6 @@ typedef struct MJpegDecodeContext {
     int rct;            /* standard rct */
     int pegasus_rct;    /* pegasus reversible colorspace transform */
     int bits;           /* bits per component */
-    int colr;
-    int xfrm;
 
     int maxval;
     int near;         ///< near lossless bound (si 0 for lossless)
@@ -86,7 +83,6 @@ typedef struct MJpegDecodeContext {
     int nb_blocks[MAX_COMPONENTS];
     int h_scount[MAX_COMPONENTS];
     int v_scount[MAX_COMPONENTS];
-    int quant_sindex[MAX_COMPONENTS];
     int h_max, v_max; /* maximum h and v counts */
     int quant_index[4];   /* quant table index for each component */
     int last_dc[MAX_COMPONENTS]; /* last DEQUANTIZED dc (XXX: am I right to do that ?) */
@@ -101,7 +97,6 @@ typedef struct MJpegDecodeContext {
     uint64_t coefs_finished[MAX_COMPONENTS]; ///< bitmask of which coefs have been completely decoded (progressive mode)
     ScanTable scantable;
     DSPContext dsp;
-    HpelDSPContext hdsp;
 
     int restart_interval;
     int restart_count;
@@ -119,7 +114,6 @@ typedef struct MJpegDecodeContext {
     unsigned int ljpeg_buffer_size;
 
     int extern_huff;
-    AVDictionary *exif_metadata;
 } MJpegDecodeContext;
 
 int ff_mjpeg_decode_init(AVCodecContext *avctx);

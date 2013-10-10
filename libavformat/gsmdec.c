@@ -80,7 +80,7 @@ static const AVOption options[] = {
     { NULL },
 };
 
-static const AVClass gsm_class = {
+static const AVClass class = {
     .class_name = "gsm demuxer",
     .item_name  = av_default_item_name,
     .option     = options,
@@ -96,5 +96,5 @@ AVInputFormat ff_gsm_demuxer = {
     .flags          = AVFMT_GENERIC_INDEX,
     .extensions     = "gsm",
     .raw_codec_id   = AV_CODEC_ID_GSM,
-    .priv_class     = &gsm_class,
+    .priv_class     = &class,
 };

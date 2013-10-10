@@ -68,7 +68,7 @@ static av_cold int ra288_decode_init(AVCodecContext *avctx)
     avctx->sample_fmt     = AV_SAMPLE_FMT_FLT;
 
     if (avctx->block_align <= 0) {
-        av_log(avctx, AV_LOG_ERROR, "unsupported block align\n");
+        av_log_ask_for_sample(avctx, "unsupported block align\n");
         return AVERROR_PATCHWELCOME;
     }
 
@@ -95,7 +95,7 @@ static void decode(RA288Context *ractx, float gain, int cb_coef)
     memmove(ractx->sp_hist + 70, ractx->sp_hist + 75, 36*sizeof(*block));
 
     /* block 46 of G.728 spec */
-    sum = 32.0;
+    sum = 32.;
     for (i=0; i < 10; i++)
         sum -= gain_block[9-i] * ractx->gain_lpc[i];
 
@@ -111,7 +111,7 @@ static void decode(RA288Context *ractx, float gain, int cb_coef)
 
     sum = avpriv_scalarproduct_float_c(buffer, buffer, 5);
 
-    sum = FFMAX(sum, 5.0 / (1<<24));
+    sum = FFMAX(sum, 5. / (1<<24));
 
     /* shift and store */
     memmove(gain_block, gain_block + 1, 9 * sizeof(*gain_block));
@@ -157,7 +157,7 @@ static void do_hybrid_window(RA288Context *ractx,
     }
 
     /* Multiply by the white noise correcting factor (WNCF). */
-    *out *= 257.0 / 256.0;
+    *out *= 257./256.;
 }
 
 /**
@@ -198,11 +198,13 @@ static int ra288_decode_frame(AVCodecContext * avctx, void *data,
 
     /* get output buffer */
     frame->nb_samples = RA288_BLOCK_SIZE * RA288_BLOCKS_PER_FRAME;
-    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
+    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
+        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
+    }
     out = (float *)frame->data[0];
 
-    init_get_bits8(&gb, buf, avctx->block_align);
+    init_get_bits(&gb, buf, avctx->block_align * 8);
 
     for (i=0; i < RA288_BLOCKS_PER_FRAME; i++) {
         float gain = amptable[get_bits(&gb, 3)];

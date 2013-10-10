@@ -28,7 +28,6 @@
 #include "libavutil/lzo.h"
 #include "libavutil/imgutils.h"
 #include "avcodec.h"
-#include "internal.h"
 #include "rtjpeg.h"
 
 typedef struct {
@@ -122,9 +121,7 @@ static int codec_reinit(AVCodecContext *avctx, int width, int height,
         get_quant_quality(c, quality);
     if (width != c->width || height != c->height) {
         // also reserve space for a possible additional header
-        int buf_size = height * width * 3 / 2
-                     + FFMAX(AV_LZO_OUTPUT_PADDING, FF_INPUT_BUFFER_PADDING_SIZE)
-                     + RTJPEG_HEADER_SIZE;
+        int buf_size = 24 + height * width * 3 / 2 + AV_LZO_OUTPUT_PADDING;
         if (buf_size > INT_MAX/8)
             return -1;
         if ((ret = av_image_check_size(height, width, 0, avctx)) < 0)
@@ -140,7 +137,6 @@ static int codec_reinit(AVCodecContext *avctx, int width, int height,
         }
         ff_rtjpeg_decode_init(&c->rtj, &c->dsp, c->width, c->height,
                               c->lq, c->cq);
-        av_frame_unref(&c->pic);
         return 1;
     } else if (quality != c->quality)
         ff_rtjpeg_decode_init(&c->rtj, &c->dsp, c->width, c->height,
@@ -210,14 +206,11 @@ retry:
     buf       = &buf[12];
     buf_size -= 12;
     if (comptype == NUV_RTJPEG_IN_LZO || comptype == NUV_LZO) {
-        int outlen = c->decomp_size - FFMAX(FF_INPUT_BUFFER_PADDING_SIZE, AV_LZO_OUTPUT_PADDING);
-        int inlen  = buf_size;
-        if (av_lzo1x_decode(c->decomp_buf, &outlen, buf, &inlen)) {
+        int outlen = c->decomp_size - AV_LZO_OUTPUT_PADDING, inlen = buf_size;
+        if (av_lzo1x_decode(c->decomp_buf, &outlen, buf, &inlen))
             av_log(avctx, AV_LOG_ERROR, "error during lzo decompression\n");
-            return AVERROR_INVALIDDATA;
-        }
         buf      = c->decomp_buf;
-        buf_size = c->decomp_size - FFMAX(FF_INPUT_BUFFER_PADDING_SIZE, AV_LZO_OUTPUT_PADDING) - outlen;
+        buf_size = c->decomp_size - AV_LZO_OUTPUT_PADDING - outlen;
     }
     if (c->codec_frameheader) {
         int w, h, q;
@@ -247,13 +240,18 @@ retry:
         buf_size -= RTJPEG_HEADER_SIZE;
     }
 
-    if (size_change || keyframe) {
-        av_frame_unref(&c->pic);
+    if ((size_change || keyframe) && c->pic.data[0]) {
+        avctx->release_buffer(avctx, &c->pic);
         init_frame = 1;
     }
-
-    if ((result = ff_reget_buffer(avctx, &c->pic)) < 0)
+    c->pic.reference    = 3;
+    c->pic.buffer_hints = FF_BUFFER_HINTS_VALID    | FF_BUFFER_HINTS_READABLE |
+                          FF_BUFFER_HINTS_PRESERVE | FF_BUFFER_HINTS_REUSABLE;
+    result = avctx->reget_buffer(avctx, &c->pic);
+    if (result < 0) {
+        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return result;
+    }
     if (init_frame) {
         memset(c->pic.data[0], 0,    avctx->height * c->pic.linesize[0]);
         memset(c->pic.data[1], 0x80, avctx->height * c->pic.linesize[1] / 2);
@@ -292,9 +290,7 @@ retry:
         return AVERROR_INVALIDDATA;
     }
 
-    if ((result = av_frame_ref(picture, &c->pic)) < 0)
-        return result;
-
+    *picture   = c->pic;
     *got_frame = 1;
     return orig_size;
 }
@@ -329,7 +325,8 @@ static av_cold int decode_end(AVCodecContext *avctx)
     NuvContext *c = avctx->priv_data;
 
     av_freep(&c->decomp_buf);
-    av_frame_unref(&c->pic);
+    if (c->pic.data[0])
+        avctx->release_buffer(avctx, &c->pic);
 
     return 0;
 }

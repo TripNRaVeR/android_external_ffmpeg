@@ -62,23 +62,9 @@
 #    define av_export
 #endif
 
-#if HAVE_PRAGMA_DEPRECATED
-#    define FF_DISABLE_DEPRECATION_WARNINGS _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
-#    define FF_ENABLE_DEPRECATION_WARNINGS  _Pragma("GCC diagnostic warning \"-Wdeprecated-declarations\"")
-#else
-#    define FF_DISABLE_DEPRECATION_WARNINGS
-#    define FF_ENABLE_DEPRECATION_WARNINGS
-#endif
-
 #ifndef INT_BIT
 #    define INT_BIT (CHAR_BIT * sizeof(int))
 #endif
-
-#define FF_MEMORY_POISON 0x2a
-
-#define MAKE_ACCESSORS(str, name, type, field) \
-    type av_##name##_get_##field(const str *s) { return s->field; } \
-    void av_##name##_set_##field(str *s, type v) { s->field = v; }
 
 // Some broken preprocessors need a second expansion
 // to be forced to tokenize __VA_ARGS__
@@ -125,11 +111,6 @@
 }
 
 #include "libm.h"
-
-#if defined(_MSC_VER)
-#pragma comment(linker, "/include:"EXTERN_PREFIX"avpriv_strtod")
-#pragma comment(linker, "/include:"EXTERN_PREFIX"avpriv_snprintf")
-#endif
 
 /**
  * Return NULL if CONFIG_SMALL is true, otherwise the argument
@@ -180,35 +161,5 @@
 #else
 #   define ONLY_IF_THREADS_ENABLED(x) NULL
 #endif
-
-/**
- * Log a generic warning message about a missing feature.
- *
- * @param[in] avc a pointer to an arbitrary struct of which the first
- *                field is a pointer to an AVClass struct
- * @param[in] msg string containing the name of the missing feature
- */
-void avpriv_report_missing_feature(void *avc,
-                                   const char *msg, ...) av_printf_format(2, 3);
-
-/**
- * Log a generic warning message about a missing feature.
- * Additionally request that a sample showcasing the feature be uploaded.
- *
- * @param[in] avc a pointer to an arbitrary struct of which the first field is
- *                a pointer to an AVClass struct
- * @param[in] msg string containing the name of the missing feature
- */
-void avpriv_request_sample(void *avc,
-                           const char *msg, ...) av_printf_format(2, 3);
-
-#if HAVE_MSVCRT
-#define avpriv_open ff_open
-#endif
-
-/**
- * A wrapper for open() setting O_CLOEXEC.
- */
-int avpriv_open(const char *filename, int flags, ...);
 
 #endif /* AVUTIL_INTERNAL_H */

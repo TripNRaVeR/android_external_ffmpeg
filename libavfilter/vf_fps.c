@@ -25,8 +25,6 @@
  * a filter enforcing given constant framerate
  */
 
-#include <float.h>
-
 #include "libavutil/common.h"
 #include "libavutil/fifo.h"
 #include "libavutil/mathematics.h"
@@ -46,9 +44,8 @@ typedef struct FPSContext {
     int64_t first_pts;      ///< pts of the first frame that arrived on this filter
     int64_t pts;            ///< pts of the first frame currently in the fifo
 
-    double start_time;      ///< pts, in seconds, of the expected first frame
-
     AVRational framerate;   ///< target framerate
+    char *fps;              ///< a string describing target framerate
     int rounding;           ///< AVRounding method for timestamps
 
     /* statistics */
@@ -62,8 +59,7 @@ typedef struct FPSContext {
 #define V AV_OPT_FLAG_VIDEO_PARAM
 #define F AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption fps_options[] = {
-    { "fps", "A string describing desired output framerate", OFFSET(framerate), AV_OPT_TYPE_VIDEO_RATE, { .str = "25" }, .flags = V|F },
-    { "start_time", "Assume the first PTS should be this value.", OFFSET(start_time), AV_OPT_TYPE_DOUBLE, { .dbl = DBL_MAX}, -DBL_MAX, DBL_MAX, V },
+    { "fps", "A string describing desired output framerate", OFFSET(fps), AV_OPT_TYPE_STRING, { .str = "25" }, .flags = V|F },
     { "round", "set rounding method for timestamps", OFFSET(rounding), AV_OPT_TYPE_INT, { .i64 = AV_ROUND_NEAR_INF }, 0, 5, V|F, "round" },
     { "zero", "round towards 0",      OFFSET(rounding), AV_OPT_TYPE_CONST, { .i64 = AV_ROUND_ZERO     }, 0, 5, V|F, "round" },
     { "inf",  "round away from 0",    OFFSET(rounding), AV_OPT_TYPE_CONST, { .i64 = AV_ROUND_INF      }, 0, 5, V|F, "round" },
@@ -75,15 +71,26 @@ static const AVOption fps_options[] = {
 
 AVFILTER_DEFINE_CLASS(fps);
 
-static av_cold int init(AVFilterContext *ctx)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     FPSContext *s = ctx->priv;
+    const char *shorthand[] = { "fps", "round", NULL };
+    int ret;
 
-    if (!(s->fifo = av_fifo_alloc(2*sizeof(AVFrame*))))
+    s->class = &fps_class;
+    av_opt_set_defaults(s);
+
+    if ((ret = av_opt_set_from_string(s, args, shorthand, "=", ":")) < 0)
+        return ret;
+
+    if ((ret = av_parse_video_rate(&s->framerate, s->fps)) < 0) {
+        av_log(ctx, AV_LOG_ERROR, "Error parsing framerate %s.\n", s->fps);
+        return ret;
+    }
+    av_opt_free(s);
+
+    if (!(s->fifo = av_fifo_alloc(2*sizeof(AVFilterBufferRef*))))
         return AVERROR(ENOMEM);
-
-    s->pts          = AV_NOPTS_VALUE;
-    s->first_pts    = AV_NOPTS_VALUE;
 
     av_log(ctx, AV_LOG_VERBOSE, "fps=%d/%d\n", s->framerate.num, s->framerate.den);
     return 0;
@@ -92,9 +99,9 @@ static av_cold int init(AVFilterContext *ctx)
 static void flush_fifo(AVFifoBuffer *fifo)
 {
     while (av_fifo_size(fifo)) {
-        AVFrame *tmp;
+        AVFilterBufferRef *tmp;
         av_fifo_generic_read(fifo, &tmp, sizeof(tmp), NULL);
-        av_frame_free(&tmp);
+        avfilter_unref_buffer(tmp);
     }
 }
 
@@ -102,7 +109,7 @@ static av_cold void uninit(AVFilterContext *ctx)
 {
     FPSContext *s = ctx->priv;
     if (s->fifo) {
-        s->drop += av_fifo_size(s->fifo) / sizeof(AVFrame*);
+        s->drop += av_fifo_size(s->fifo) / sizeof(AVFilterBufferRef*);
         flush_fifo(s->fifo);
         av_fifo_free(s->fifo);
     }
@@ -119,6 +126,7 @@ static int config_props(AVFilterLink* link)
     link->frame_rate= s->framerate;
     link->w         = link->src->inputs[0]->w;
     link->h         = link->src->inputs[0]->h;
+    s->pts          = AV_NOPTS_VALUE;
 
     return 0;
 }
@@ -137,7 +145,7 @@ static int request_frame(AVFilterLink *outlink)
     if (ret == AVERROR_EOF && av_fifo_size(s->fifo)) {
         int i;
         for (i = 0; av_fifo_size(s->fifo); i++) {
-            AVFrame *buf;
+            AVFilterBufferRef *buf;
 
             av_fifo_generic_read(s->fifo, &buf, sizeof(buf), NULL);
             buf->pts = av_rescale_q(s->first_pts, ctx->inputs[0]->time_base,
@@ -154,13 +162,13 @@ static int request_frame(AVFilterLink *outlink)
     return ret;
 }
 
-static int write_to_fifo(AVFifoBuffer *fifo, AVFrame *buf)
+static int write_to_fifo(AVFifoBuffer *fifo, AVFilterBufferRef *buf)
 {
     int ret;
 
     if (!av_fifo_space(fifo) &&
         (ret = av_fifo_realloc2(fifo, 2*av_fifo_size(fifo)))) {
-        av_frame_free(&buf);
+        avfilter_unref_bufferp(&buf);
         return ret;
     }
 
@@ -168,7 +176,7 @@ static int write_to_fifo(AVFifoBuffer *fifo, AVFrame *buf)
     return 0;
 }
 
-static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
+static int filter_frame(AVFilterLink *inlink, AVFilterBufferRef *buf)
 {
     AVFilterContext    *ctx = inlink->dst;
     FPSContext           *s = ctx->priv;
@@ -184,21 +192,11 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
             if (ret < 0)
                 return ret;
 
-            if (s->start_time != DBL_MAX && s->start_time != AV_NOPTS_VALUE) {
-                double first_pts = s->start_time * AV_TIME_BASE;
-                first_pts = FFMIN(FFMAX(first_pts, INT64_MIN), INT64_MAX);
-                s->first_pts = s->pts = av_rescale_q(first_pts, AV_TIME_BASE_Q,
-                                                     inlink->time_base);
-                av_log(ctx, AV_LOG_VERBOSE, "Set first pts to (in:%"PRId64" out:%"PRId64")\n",
-                       s->first_pts, av_rescale_q(first_pts, AV_TIME_BASE_Q,
-                                                  outlink->time_base));
-            } else {
-                s->first_pts = s->pts = buf->pts;
-            }
+            s->first_pts = s->pts = buf->pts;
         } else {
             av_log(ctx, AV_LOG_WARNING, "Discarding initial frame(s) with no "
                    "timestamp.\n");
-            av_frame_free(&buf);
+            avfilter_unref_buffer(buf);
             s->drop++;
         }
         return 0;
@@ -215,8 +213,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
 
     if (delta < 1) {
         /* drop the frame and everything buffered except the first */
-        AVFrame *tmp;
-        int drop = av_fifo_size(s->fifo)/sizeof(AVFrame*);
+        AVFilterBufferRef *tmp;
+        int drop = av_fifo_size(s->fifo)/sizeof(AVFilterBufferRef*);
 
         av_log(ctx, AV_LOG_DEBUG, "Dropping %d frame(s).\n", drop);
         s->drop += drop;
@@ -225,18 +223,18 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
         flush_fifo(s->fifo);
         ret = write_to_fifo(s->fifo, tmp);
 
-        av_frame_free(&buf);
+        avfilter_unref_buffer(buf);
         return ret;
     }
 
     /* can output >= 1 frames */
     for (i = 0; i < delta; i++) {
-        AVFrame *buf_out;
+        AVFilterBufferRef *buf_out;
         av_fifo_generic_read(s->fifo, &buf_out, sizeof(buf_out), NULL);
 
         /* duplicate the frame if needed */
         if (!av_fifo_size(s->fifo) && i < delta - 1) {
-            AVFrame *dup = av_frame_clone(buf_out);
+            AVFilterBufferRef *dup = avfilter_ref_buffer(buf_out, ~0);
 
             av_log(ctx, AV_LOG_DEBUG, "Duplicating frame.\n");
             if (dup)
@@ -245,8 +243,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
                 ret = AVERROR(ENOMEM);
 
             if (ret < 0) {
-                av_frame_free(&buf_out);
-                av_frame_free(&buf);
+                avfilter_unref_bufferp(&buf_out);
+                avfilter_unref_bufferp(&buf);
                 return ret;
             }
 
@@ -257,7 +255,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
                                     outlink->time_base) + s->frames_out;
 
         if ((ret = ff_filter_frame(outlink, buf_out)) < 0) {
-            av_frame_free(&buf);
+            avfilter_unref_bufferp(&buf);
             return ret;
         }
 
@@ -275,6 +273,7 @@ static const AVFilterPad avfilter_vf_fps_inputs[] = {
     {
         .name        = "default",
         .type        = AVMEDIA_TYPE_VIDEO,
+        .min_perms   = AV_PERM_READ | AV_PERM_PRESERVE,
         .filter_frame = filter_frame,
     },
     { NULL }
@@ -284,6 +283,7 @@ static const AVFilterPad avfilter_vf_fps_outputs[] = {
     {
         .name          = "default",
         .type          = AVMEDIA_TYPE_VIDEO,
+        .rej_perms     = AV_PERM_WRITE,
         .request_frame = request_frame,
         .config_props  = config_props
     },
@@ -292,14 +292,14 @@ static const AVFilterPad avfilter_vf_fps_outputs[] = {
 
 AVFilter avfilter_vf_fps = {
     .name        = "fps",
-    .description = NULL_IF_CONFIG_SMALL("Force constant framerate."),
+    .description = NULL_IF_CONFIG_SMALL("Force constant framerate"),
 
     .init      = init,
     .uninit    = uninit,
 
     .priv_size = sizeof(FPSContext),
-    .priv_class = &fps_class,
 
     .inputs    = avfilter_vf_fps_inputs,
     .outputs   = avfilter_vf_fps_outputs,
+    .priv_class = &fps_class,
 };

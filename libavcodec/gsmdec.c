@@ -34,14 +34,6 @@
 
 static av_cold int gsm_init(AVCodecContext *avctx)
 {
-    if (avctx->codec_tag == 0x0032 &&
-        avctx->bit_rate != 13000 &&
-        avctx->bit_rate != 17912 &&
-        avctx->bit_rate != 35824 &&
-        avctx->bit_rate != 71656) {
-        av_log(avctx, AV_LOG_ERROR, "Unsupported audio mode\n");
-        return AVERROR_PATCHWELCOME;
-    }
     avctx->channels       = 1;
     avctx->channel_layout = AV_CH_LAYOUT_MONO;
     if (!avctx->sample_rate)
@@ -78,8 +70,10 @@ static int gsm_decode_frame(AVCodecContext *avctx, void *data,
 
     /* get output buffer */
     frame->nb_samples = avctx->frame_size;
-    if ((res = ff_get_buffer(avctx, frame, 0)) < 0)
+    if ((res = ff_get_buffer(avctx, frame)) < 0) {
+        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return res;
+    }
     samples = (int16_t *)frame->data[0];
 
     switch (avctx->codec_id) {

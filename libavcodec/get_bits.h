@@ -64,7 +64,6 @@ typedef struct VLC {
     int bits;
     VLC_TYPE (*table)[2]; ///< code, bits
     int table_size, table_allocated;
-    void * volatile init_state;
 } VLC;
 
 typedef struct RL_VLC_ELEM {
@@ -140,34 +139,27 @@ typedef struct RL_VLC_ELEM {
 
 #define CLOSE_READER(name, gb) (gb)->index = name ## _index
 
-# ifdef LONG_BITSTREAM_READER
-
-# define UPDATE_CACHE_LE(name, gb) name ## _cache = \
-      AV_RL64((gb)->buffer + (name ## _index >> 3)) >> (name ## _index & 7)
-
-# define UPDATE_CACHE_BE(name, gb) name ## _cache = \
-      AV_RB64((gb)->buffer + (name ## _index >> 3)) >> (32 - (name ## _index & 7))
-
-#else
-
-# define UPDATE_CACHE_LE(name, gb) name ## _cache = \
-      AV_RL32((gb)->buffer + (name ## _index >> 3)) >> (name ## _index & 7)
-
-# define UPDATE_CACHE_BE(name, gb) name ## _cache = \
-      AV_RB32((gb)->buffer + (name ## _index >> 3)) << (name ## _index & 7)
-
-#endif
-
-
 #ifdef BITSTREAM_READER_LE
 
-# define UPDATE_CACHE(name, gb) UPDATE_CACHE_LE(name, gb)
+# ifdef LONG_BITSTREAM_READER
+#   define UPDATE_CACHE(name, gb) name ## _cache = \
+        AV_RL64((gb)->buffer + (name ## _index >> 3)) >> (name ## _index & 7)
+# else
+#   define UPDATE_CACHE(name, gb) name ## _cache = \
+        AV_RL32((gb)->buffer + (name ## _index >> 3)) >> (name ## _index & 7)
+# endif
 
 # define SKIP_CACHE(name, gb, num) name ## _cache >>= (num)
 
 #else
 
-# define UPDATE_CACHE(name, gb) UPDATE_CACHE_BE(name, gb)
+# ifdef LONG_BITSTREAM_READER
+#   define UPDATE_CACHE(name, gb) name ## _cache = \
+        AV_RB64((gb)->buffer + (name ## _index >> 3)) >> (32 - (name ## _index & 7))
+# else
+#   define UPDATE_CACHE(name, gb) name ## _cache = \
+        AV_RB32((gb)->buffer + (name ## _index >> 3)) << (name ## _index & 7)
+# endif
 
 # define SKIP_CACHE(name, gb, num) name ## _cache <<= (num)
 
@@ -188,18 +180,12 @@ typedef struct RL_VLC_ELEM {
 
 #define LAST_SKIP_BITS(name, gb, num) SKIP_COUNTER(name, gb, num)
 
-#define SHOW_UBITS_LE(name, gb, num) zero_extend(name ## _cache, num)
-#define SHOW_SBITS_LE(name, gb, num) sign_extend(name ## _cache, num)
-
-#define SHOW_UBITS_BE(name, gb, num) NEG_USR32(name ## _cache, num)
-#define SHOW_SBITS_BE(name, gb, num) NEG_SSR32(name ## _cache, num)
-
 #ifdef BITSTREAM_READER_LE
-#   define SHOW_UBITS(name, gb, num) SHOW_UBITS_LE(name, gb, num)
-#   define SHOW_SBITS(name, gb, num) SHOW_SBITS_LE(name, gb, num)
+#   define SHOW_UBITS(name, gb, num) zero_extend(name ## _cache, num)
+#   define SHOW_SBITS(name, gb, num) sign_extend(name ## _cache, num)
 #else
-#   define SHOW_UBITS(name, gb, num) SHOW_UBITS_BE(name, gb, num)
-#   define SHOW_SBITS(name, gb, num) SHOW_SBITS_BE(name, gb, num)
+#   define SHOW_UBITS(name, gb, num) NEG_USR32(name ## _cache, num)
+#   define SHOW_SBITS(name, gb, num) NEG_SSR32(name ## _cache, num)
 #endif
 
 #define GET_CACHE(name, gb) ((uint32_t) name ## _cache)
@@ -228,7 +214,6 @@ static inline int get_xbits(GetBitContext *s, int n)
     register int sign;
     register int32_t cache;
     OPEN_READER(re, s);
-    av_assert2(n>0 && n<=25);
     UPDATE_CACHE(re, s);
     cache = GET_CACHE(re, s);
     sign  = ~cache >> 31;
@@ -259,18 +244,6 @@ static inline unsigned int get_bits(GetBitContext *s, int n)
     av_assert2(n>0 && n<=25);
     UPDATE_CACHE(re, s);
     tmp = SHOW_UBITS(re, s, n);
-    LAST_SKIP_BITS(re, s, n);
-    CLOSE_READER(re, s);
-    return tmp;
-}
-
-static inline unsigned int get_bits_le(GetBitContext *s, int n)
-{
-    register int tmp;
-    OPEN_READER(re, s);
-    av_assert2(n>0 && n<=25);
-    UPDATE_CACHE_LE(re, s);
-    tmp = SHOW_UBITS_LE(re, s, n);
     LAST_SKIP_BITS(re, s, n);
     CLOSE_READER(re, s);
     return tmp;

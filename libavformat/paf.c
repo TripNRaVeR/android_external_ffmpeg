@@ -233,10 +233,9 @@ static int read_packet(AVFormatContext *s, AVPacket *pkt)
         p->current_frame_block++;
     }
 
-    if (p->frames_offset_table[p->current_frame] >= p->video_size)
-        return AVERROR_INVALIDDATA;
-
     size = p->video_size - p->frames_offset_table[p->current_frame];
+    if (size < 1)
+        return AVERROR_INVALIDDATA;
 
     if (av_new_packet(pkt, size) < 0)
         return AVERROR(ENOMEM);

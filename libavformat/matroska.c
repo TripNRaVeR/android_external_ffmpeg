@@ -57,25 +57,14 @@ const CodecTags ff_mkv_codec_tags[]={
     {"A_VORBIS"         , AV_CODEC_ID_VORBIS},
     {"A_WAVPACK4"       , AV_CODEC_ID_WAVPACK},
 
-    {"D_WEBVTT/SUBTITLES"   , AV_CODEC_ID_WEBVTT},
-    {"D_WEBVTT/CAPTIONS"    , AV_CODEC_ID_WEBVTT},
-    {"D_WEBVTT/DESCRIPTIONS", AV_CODEC_ID_WEBVTT},
-    {"D_WEBVTT/METADATA"    , AV_CODEC_ID_WEBVTT},
-
     {"S_TEXT/UTF8"      , AV_CODEC_ID_SUBRIP},
     {"S_TEXT/UTF8"      , AV_CODEC_ID_TEXT},
     {"S_TEXT/UTF8"      , AV_CODEC_ID_SRT},
     {"S_TEXT/ASCII"     , AV_CODEC_ID_TEXT},
-#if FF_API_ASS_SSA
     {"S_TEXT/ASS"       , AV_CODEC_ID_SSA},
     {"S_TEXT/SSA"       , AV_CODEC_ID_SSA},
     {"S_ASS"            , AV_CODEC_ID_SSA},
     {"S_SSA"            , AV_CODEC_ID_SSA},
-#endif
-    {"S_TEXT/ASS"       , AV_CODEC_ID_ASS},
-    {"S_TEXT/SSA"       , AV_CODEC_ID_ASS},
-    {"S_ASS"            , AV_CODEC_ID_ASS},
-    {"S_SSA"            , AV_CODEC_ID_ASS},
     {"S_VOBSUB"         , AV_CODEC_ID_DVD_SUBTITLE},
     {"S_DVBSUB"         , AV_CODEC_ID_DVB_SUBTITLE},
     {"S_HDMV/PGS"       , AV_CODEC_ID_HDMV_PGS_SUBTITLE},

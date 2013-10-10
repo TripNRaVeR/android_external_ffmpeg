@@ -29,12 +29,11 @@
 #include "avcodec.h"
 #include "get_bits.h"
 #include "indeo2data.h"
-#include "internal.h"
 #include "mathops.h"
 
 typedef struct Ir2Context{
     AVCodecContext *avctx;
-    AVFrame *picture;
+    AVFrame picture;
     GetBitContext gb;
     int decode_delta;
 } Ir2Context;
@@ -146,11 +145,15 @@ static int ir2_decode_frame(AVCodecContext *avctx,
     const uint8_t *buf   = avpkt->data;
     int buf_size         = avpkt->size;
     AVFrame *picture     = data;
-    AVFrame * const p    = s->picture;
+    AVFrame * const p    = &s->picture;
     int start, ret;
 
-    if ((ret = ff_reget_buffer(avctx, p)) < 0)
+    p->reference = 3;
+    p->buffer_hints = FF_BUFFER_HINTS_VALID | FF_BUFFER_HINTS_PRESERVE | FF_BUFFER_HINTS_REUSABLE;
+    if ((ret = avctx->reget_buffer(avctx, p)) < 0) {
+        av_log(s->avctx, AV_LOG_ERROR, "reget_buffer() failed\n");
         return ret;
+    }
 
     start = 48; /* hardcoded for now */
 
@@ -171,38 +174,36 @@ static int ir2_decode_frame(AVCodecContext *avctx,
 
     if (s->decode_delta) { /* intraframe */
         if ((ret = ir2_decode_plane(s, avctx->width, avctx->height,
-                                    s->picture->data[0], s->picture->linesize[0],
+                                    s->picture.data[0], s->picture.linesize[0],
                                     ir2_luma_table)) < 0)
             return ret;
 
         /* swapped U and V */
         if ((ret = ir2_decode_plane(s, avctx->width >> 2, avctx->height >> 2,
-                                    s->picture->data[2], s->picture->linesize[2],
+                                    s->picture.data[2], s->picture.linesize[2],
                                     ir2_luma_table)) < 0)
             return ret;
         if ((ret = ir2_decode_plane(s, avctx->width >> 2, avctx->height >> 2,
-                                    s->picture->data[1], s->picture->linesize[1],
+                                    s->picture.data[1], s->picture.linesize[1],
                                     ir2_luma_table)) < 0)
             return ret;
     } else { /* interframe */
         if ((ret = ir2_decode_plane_inter(s, avctx->width, avctx->height,
-                                          s->picture->data[0], s->picture->linesize[0],
+                                          s->picture.data[0], s->picture.linesize[0],
                                           ir2_luma_table)) < 0)
             return ret;
         /* swapped U and V */
         if ((ret = ir2_decode_plane_inter(s, avctx->width >> 2, avctx->height >> 2,
-                                          s->picture->data[2], s->picture->linesize[2],
+                                          s->picture.data[2], s->picture.linesize[2],
                                           ir2_luma_table)) < 0)
             return ret;
         if ((ret = ir2_decode_plane_inter(s, avctx->width >> 2, avctx->height >> 2,
-                                          s->picture->data[1], s->picture->linesize[1],
+                                          s->picture.data[1], s->picture.linesize[1],
                                           ir2_luma_table)) < 0)
             return ret;
     }
 
-    if ((ret = av_frame_ref(picture, s->picture)) < 0)
-        return ret;
-
+    *picture   = s->picture;
     *got_frame = 1;
 
     return buf_size;
@@ -213,13 +214,10 @@ static av_cold int ir2_decode_init(AVCodecContext *avctx)
     Ir2Context * const ic = avctx->priv_data;
     static VLC_TYPE vlc_tables[1 << CODE_VLC_BITS][2];
 
+    avcodec_get_frame_defaults(&ic->picture);
     ic->avctx = avctx;
 
     avctx->pix_fmt= AV_PIX_FMT_YUV410P;
-
-    ic->picture = av_frame_alloc();
-    if (!ic->picture)
-        return AVERROR(ENOMEM);
 
     ir2_vlc.table = vlc_tables;
     ir2_vlc.table_allocated = 1 << CODE_VLC_BITS;
@@ -239,8 +237,10 @@ static av_cold int ir2_decode_init(AVCodecContext *avctx)
 static av_cold int ir2_decode_end(AVCodecContext *avctx)
 {
     Ir2Context * const ic = avctx->priv_data;
+    AVFrame *pic = &ic->picture;
 
-    av_frame_free(&ic->picture);
+    if (pic->data[0])
+        avctx->release_buffer(avctx, pic);
 
     return 0;
 }

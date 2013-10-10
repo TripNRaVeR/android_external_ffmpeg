@@ -177,12 +177,11 @@ int ff_lpc_calc_coefs(LPCContext *s,
     double autoc[MAX_LPC_ORDER+1];
     double ref[MAX_LPC_ORDER];
     double lpc[MAX_LPC_ORDER][MAX_LPC_ORDER];
-    int i, j, pass = 0;
+    int i, j, pass;
     int opt_order;
 
     av_assert2(max_order >= MIN_LPC_ORDER && max_order <= MAX_LPC_ORDER &&
            lpc_type > FF_LPC_TYPE_FIXED);
-    av_assert0(lpc_type == FF_LPC_TYPE_CHOLESKY || lpc_type == FF_LPC_TYPE_LEVINSON);
 
     /* reinit LPC context if parameters have changed */
     if (blocksize != s->blocksize || max_order != s->max_order ||
@@ -191,10 +190,7 @@ int ff_lpc_calc_coefs(LPCContext *s,
         ff_lpc_init(s, blocksize, max_order, lpc_type);
     }
 
-    if(lpc_passes <= 0)
-        lpc_passes = 2;
-
-    if (lpc_type == FF_LPC_TYPE_LEVINSON || (lpc_type == FF_LPC_TYPE_CHOLESKY && lpc_passes > 1)) {
+    if (lpc_type == FF_LPC_TYPE_LEVINSON) {
         s->lpc_apply_welch_window(samples, blocksize, s->windowed_samples);
 
         s->lpc_compute_autocorr(s->windowed_samples, blocksize, max_order, autoc);
@@ -203,20 +199,14 @@ int ff_lpc_calc_coefs(LPCContext *s,
 
         for(i=0; i<max_order; i++)
             ref[i] = fabs(lpc[i][i]);
-
-        pass++;
-    }
-
-    if (lpc_type == FF_LPC_TYPE_CHOLESKY) {
+    } else if (lpc_type == FF_LPC_TYPE_CHOLESKY) {
         LLSModel m[2];
-        LOCAL_ALIGNED(32, double, var, [FFALIGN(MAX_LPC_ORDER+1,4)]);
-        double av_uninit(weight);
-        memset(var, 0, FFALIGN(MAX_LPC_ORDER+1,4)*sizeof(*var));
+        double var[MAX_LPC_ORDER+1], av_uninit(weight);
 
-        for(j=0; j<max_order; j++)
-            m[0].coeff[max_order-1][j] = -lpc[max_order-1][j];
+        if(lpc_passes <= 0)
+            lpc_passes = 2;
 
-        for(; pass<lpc_passes; pass++){
+        for(pass=0; pass<lpc_passes; pass++){
             avpriv_init_lls(&m[pass&1], max_order);
 
             weight=0;
@@ -226,7 +216,7 @@ int ff_lpc_calc_coefs(LPCContext *s,
 
                 if(pass){
                     double eval, inv, rinv;
-                    eval= m[pass&1].evaluate_lls(&m[(pass-1)&1], var+1, max_order-1);
+                    eval= avpriv_evaluate_lls(&m[(pass-1)&1], var+1, max_order-1);
                     eval= (512>>pass) + fabs(eval - var[0]);
                     inv = 1/eval;
                     rinv = sqrt(inv);
@@ -236,7 +226,7 @@ int ff_lpc_calc_coefs(LPCContext *s,
                 }else
                     weight++;
 
-                m[pass&1].update_lls(&m[pass&1], var);
+                avpriv_update_lls(&m[pass&1], var, 1.0);
             }
             avpriv_solve_lls(&m[pass&1], 0.001, 0);
         }
@@ -248,8 +238,8 @@ int ff_lpc_calc_coefs(LPCContext *s,
         }
         for(i=max_order-1; i>0; i--)
             ref[i] = ref[i-1] - ref[i];
-    }
-
+    } else
+        av_assert0(0);
     opt_order = max_order;
 
     if(omethod == ORDER_METHOD_EST) {
@@ -272,11 +262,15 @@ av_cold int ff_lpc_init(LPCContext *s, int blocksize, int max_order,
     s->max_order = max_order;
     s->lpc_type  = lpc_type;
 
-    s->windowed_buffer = av_mallocz((blocksize + 2 + FFALIGN(max_order, 4)) *
-                                    sizeof(*s->windowed_samples));
-    if (!s->windowed_buffer)
-        return AVERROR(ENOMEM);
-    s->windowed_samples = s->windowed_buffer + FFALIGN(max_order, 4);
+    if (lpc_type == FF_LPC_TYPE_LEVINSON) {
+        s->windowed_buffer = av_mallocz((blocksize + 2 + FFALIGN(max_order, 4)) *
+                                        sizeof(*s->windowed_samples));
+        if (!s->windowed_buffer)
+            return AVERROR(ENOMEM);
+        s->windowed_samples = s->windowed_buffer + FFALIGN(max_order, 4);
+    } else {
+        s->windowed_samples = NULL;
+    }
 
     s->lpc_apply_welch_window = lpc_apply_welch_window_c;
     s->lpc_compute_autocorr   = lpc_compute_autocorr_c;

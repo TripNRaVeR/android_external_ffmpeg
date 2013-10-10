@@ -27,7 +27,6 @@
 #include <stdint.h>
 
 #include "avcodec.h"
-#include "libavutil/internal.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/channel_layout.h"
 #include "get_bits.h"
@@ -333,10 +332,9 @@ static int read_major_sync(MLPDecodeContext *m, GetBitContext *gb)
         return AVERROR_INVALIDDATA;
     }
     if (mh.num_substreams > MAX_SUBSTREAMS) {
-        avpriv_request_sample(m->avctx,
-                              "%d substreams (more than the "
-                              "maximum supported by the decoder)",
-                              mh.num_substreams);
+        av_log_ask_for_sample(m->avctx,
+               "Number of substreams %d is larger than the maximum supported "
+               "by the decoder.\n", mh.num_substreams);
         return AVERROR_PATCHWELCOME;
     }
 
@@ -402,10 +400,10 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
     uint8_t checksum;
     uint8_t lossless_check;
     int start_count = get_bits_count(gbp);
-    int min_channel, max_channel, max_matrix_channel;
-    const int std_max_matrix_channel = m->avctx->codec_id == AV_CODEC_ID_MLP
-                                     ? MAX_MATRIX_CHANNEL_MLP
-                                     : MAX_MATRIX_CHANNEL_TRUEHD;
+    const int max_matrix_channel = m->avctx->codec_id == AV_CODEC_ID_MLP
+                                 ? MAX_MATRIX_CHANNEL_MLP
+                                 : MAX_MATRIX_CHANNEL_TRUEHD;
+    int max_channel, min_channel, matrix_channel;
 
     sync_word = get_bits(gbp, 13);
 
@@ -424,18 +422,18 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
 
     skip_bits(gbp, 16); /* Output timestamp */
 
-    min_channel        = get_bits(gbp, 4);
-    max_channel        = get_bits(gbp, 4);
-    max_matrix_channel = get_bits(gbp, 4);
+    min_channel    = get_bits(gbp, 4);
+    max_channel    = get_bits(gbp, 4);
+    matrix_channel = get_bits(gbp, 4);
 
-    if (max_matrix_channel > std_max_matrix_channel) {
+    if (matrix_channel > max_matrix_channel) {
         av_log(m->avctx, AV_LOG_ERROR,
                "Max matrix channel cannot be greater than %d.\n",
-               std_max_matrix_channel);
+               max_matrix_channel);
         return AVERROR_INVALIDDATA;
     }
 
-    if (max_channel != max_matrix_channel) {
+    if (max_channel != matrix_channel) {
         av_log(m->avctx, AV_LOG_ERROR,
                "Max channel must be equal max matrix channel.\n");
         return AVERROR_INVALIDDATA;
@@ -444,10 +442,9 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
     /* This should happen for TrueHD streams with >6 channels and MLP's noise
      * type. It is not yet known if this is allowed. */
     if (max_channel > MAX_MATRIX_CHANNEL_MLP && !s->noise_type) {
-        avpriv_request_sample(m->avctx,
-                              "%d channels (more than the "
-                              "maximum supported by the decoder)",
-                              max_channel + 2);
+        av_log_ask_for_sample(m->avctx,
+               "Number of channels %d is larger than the maximum supported "
+               "by the decoder.\n", max_channel + 2);
         return AVERROR_PATCHWELCOME;
     }
 
@@ -457,12 +454,11 @@ static int read_restart_header(MLPDecodeContext *m, GetBitContext *gbp,
         return AVERROR_INVALIDDATA;
     }
 
-    s->min_channel        = min_channel;
-    s->max_channel        = max_channel;
-    s->max_matrix_channel = max_matrix_channel;
+    s->min_channel = min_channel;
+    s->max_channel = max_channel;
+    s->max_matrix_channel = matrix_channel;
 
 #if FF_API_REQUEST_CHANNELS
-FF_DISABLE_DEPRECATION_WARNINGS
     if (m->avctx->request_channels > 0 &&
         m->avctx->request_channels <= s->max_channel + 1 &&
         m->max_decoded_substream > substr) {
@@ -471,7 +467,6 @@ FF_DISABLE_DEPRECATION_WARNINGS
                "Further substreams will be skipped.\n",
                s->max_channel + 1, substr);
         m->max_decoded_substream = substr;
-FF_ENABLE_DEPRECATION_WARNINGS
     } else
 #endif
     if (m->avctx->request_channel_layout == s->ch_layout &&
@@ -512,9 +507,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
                                                             channel);
         }
         if ((unsigned)ch_assign > s->max_matrix_channel) {
-            avpriv_request_sample(m->avctx,
-                                  "Assignment of matrix channel %d to invalid output channel %d",
-                                  ch, ch_assign);
+            av_log_ask_for_sample(m->avctx,
+                   "Assignment of matrix channel %d to invalid output channel %d.\n",
+                   ch, ch_assign);
             return AVERROR_PATCHWELCOME;
         }
         s->ch_assign[ch_assign] = ch;
@@ -638,7 +633,7 @@ static int read_filter_params(MLPDecodeContext *m, GetBitContext *gbp,
             /* TODO: Check validity of state data. */
 
             for (i = 0; i < order; i++)
-                fp->state[i] = state_bits ? get_sbits(gbp, state_bits) << state_shift : 0;
+                fp->state[i] = get_sbits(gbp, state_bits) << state_shift;
         }
     }
 
@@ -860,8 +855,8 @@ static int read_block_data(MLPDecodeContext *m, GetBitContext *gbp,
     if (s->data_check_present) {
         expected_stream_pos  = get_bits_count(gbp);
         expected_stream_pos += get_bits(gbp, 16);
-        avpriv_request_sample(m->avctx,
-                              "Substreams with VLC block size check info");
+        av_log_ask_for_sample(m->avctx, "This file contains some features "
+                              "we have not tested yet.\n");
     }
 
     if (s->blockpos + s->blocksize > m->access_unit_size) {
@@ -1028,8 +1023,10 @@ static int output_data(MLPDecodeContext *m, unsigned int substr,
 
     /* get output buffer */
     frame->nb_samples = s->blockpos;
-    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
+    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
+        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
+    }
     data_32 = (int32_t *)frame->data[0];
     data_16 = (int16_t *)frame->data[0];
 

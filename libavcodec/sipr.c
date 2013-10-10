@@ -240,7 +240,7 @@ static void eval_ir(const float *Az, int pitch_lag, float *freq,
     float tmp1[SUBFR_SIZE+1], tmp2[LP_FILTER_ORDER+1];
     int i;
 
-    tmp1[0] = 1.0;
+    tmp1[0] = 1.;
     for (i = 0; i < LP_FILTER_ORDER; i++) {
         tmp1[i+1] = Az[i] * ff_pow_0_55[i];
         tmp2[i  ] = Az[i] * ff_pow_0_7 [i];
@@ -543,8 +543,10 @@ static int sipr_decode_frame(AVCodecContext *avctx, void *data,
     /* get output buffer */
     frame->nb_samples = mode_par->frames_per_packet * subframe_size *
                         mode_par->subframe_count;
-    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
+    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
+        av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
+    }
     samples = (float *)frame->data[0];
 
     init_get_bits(&gb, buf, mode_par->bits_per_frame);

@@ -25,48 +25,40 @@
  * sample format and channel layout conversion audio filter
  */
 
+#include "libavutil/avstring.h"
 #include "libavutil/channel_layout.h"
-#include "libavutil/opt.h"
 #include "libswresample/swresample.h"
 #include "avfilter.h"
 #include "audio.h"
 #include "internal.h"
 
 typedef struct {
-    const AVClass       *class;
     enum AVSampleFormat  out_sample_fmt;
     int64_t              out_chlayout;
     struct SwrContext *swr;
-    char *format_str;
-    char *channel_layout_str;
 } AConvertContext;
 
-#define OFFSET(x) offsetof(AConvertContext, x)
-#define A AV_OPT_FLAG_AUDIO_PARAM
-#define F AV_OPT_FLAG_FILTERING_PARAM
-static const AVOption aconvert_options[] = {
-    { "sample_fmt",     "", OFFSET(format_str),         AV_OPT_TYPE_STRING, .flags = A|F },
-    { "channel_layout", "", OFFSET(channel_layout_str), AV_OPT_TYPE_STRING, .flags = A|F },
-    { NULL },
-};
-
-AVFILTER_DEFINE_CLASS(aconvert);
-
-static av_cold int init(AVFilterContext *ctx)
+static av_cold int init(AVFilterContext *ctx, const char *args0)
 {
     AConvertContext *aconvert = ctx->priv;
+    char *arg, *ptr = NULL;
     int ret = 0;
-
-    av_log(ctx, AV_LOG_WARNING, "This filter is deprecated, use aformat instead\n");
+    char *args = av_strdup(args0);
 
     aconvert->out_sample_fmt  = AV_SAMPLE_FMT_NONE;
     aconvert->out_chlayout    = 0;
 
-    if (aconvert->format_str && strcmp(aconvert->format_str, "auto") &&
-        (ret = ff_parse_sample_format(&aconvert->out_sample_fmt, aconvert->format_str, ctx)) < 0)
-        return ret;
-    if (aconvert->channel_layout_str && strcmp(aconvert->channel_layout_str, "auto"))
-        return ff_parse_channel_layout(&aconvert->out_chlayout, aconvert->channel_layout_str, ctx);
+    if ((arg = av_strtok(args, ":", &ptr)) && strcmp(arg, "auto")) {
+        if ((ret = ff_parse_sample_format(&aconvert->out_sample_fmt, arg, ctx)) < 0)
+            goto end;
+    }
+    if ((arg = av_strtok(NULL, ":", &ptr)) && strcmp(arg, "auto")) {
+        if ((ret = ff_parse_channel_layout(&aconvert->out_chlayout, arg, ctx)) < 0)
+            goto end;
+    }
+
+end:
+    av_freep(&args);
     return ret;
 }
 
@@ -143,25 +135,23 @@ static int config_output(AVFilterLink *outlink)
     return 0;
 }
 
-static int  filter_frame(AVFilterLink *inlink, AVFrame *insamplesref)
+static int  filter_frame(AVFilterLink *inlink, AVFilterBufferRef *insamplesref)
 {
     AConvertContext *aconvert = inlink->dst->priv;
-    const int n = insamplesref->nb_samples;
+    const int n = insamplesref->audio->nb_samples;
     AVFilterLink *const outlink = inlink->dst->outputs[0];
-    AVFrame *outsamplesref = ff_get_audio_buffer(outlink, n);
+    AVFilterBufferRef *outsamplesref = ff_get_audio_buffer(outlink, AV_PERM_WRITE, n);
     int ret;
 
-    if (!outsamplesref)
-        return AVERROR(ENOMEM);
-    swr_convert(aconvert->swr, outsamplesref->extended_data, n,
-                        (void *)insamplesref->extended_data, n);
+    swr_convert(aconvert->swr, outsamplesref->data, n,
+                        (void *)insamplesref->data, n);
 
-    av_frame_copy_props(outsamplesref, insamplesref);
-    av_frame_set_channels(outsamplesref, outlink->channels);
-    outsamplesref->channel_layout = outlink->channel_layout;
+    avfilter_copy_buffer_ref_props(outsamplesref, insamplesref);
+    outsamplesref->audio->channels       = outlink->channels;
+    outsamplesref->audio->channel_layout = outlink->channel_layout;
 
     ret = ff_filter_frame(outlink, outsamplesref);
-    av_frame_free(&insamplesref);
+    avfilter_unref_buffer(insamplesref);
     return ret;
 }
 
@@ -170,6 +160,7 @@ static const AVFilterPad aconvert_inputs[] = {
         .name         = "default",
         .type         = AVMEDIA_TYPE_AUDIO,
         .filter_frame = filter_frame,
+        .min_perms    = AV_PERM_READ,
     },
     { NULL }
 };
@@ -187,7 +178,6 @@ AVFilter avfilter_af_aconvert = {
     .name          = "aconvert",
     .description   = NULL_IF_CONFIG_SMALL("Convert the input audio to sample_fmt:channel_layout."),
     .priv_size     = sizeof(AConvertContext),
-    .priv_class    = &aconvert_class,
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,

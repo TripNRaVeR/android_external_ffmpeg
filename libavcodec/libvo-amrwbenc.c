@@ -45,7 +45,7 @@ static const AVOption options[] = {
     { NULL }
 };
 
-static const AVClass amrwb_class = {
+static const AVClass class = {
     "libvo_amrwbenc", av_default_item_name, options, LIBAVUTIL_VERSION_INT
 };
 
@@ -94,6 +94,11 @@ static av_cold int amr_wb_encode_init(AVCodecContext *avctx)
 
     avctx->frame_size  = 320;
     avctx->delay       =  80;
+#if FF_API_OLD_ENCODE_AUDIO
+    avctx->coded_frame = avcodec_alloc_frame();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
+#endif
 
     s->state     = E_IF_init();
 
@@ -105,6 +110,7 @@ static int amr_wb_encode_close(AVCodecContext *avctx)
     AMRWBContext *s = avctx->priv_data;
 
     E_IF_exit(s->state);
+    av_freep(&avctx->coded_frame);
     return 0;
 }
 
@@ -148,5 +154,5 @@ AVCodec ff_libvo_amrwbenc_encoder = {
                                                      AV_SAMPLE_FMT_NONE },
     .long_name      = NULL_IF_CONFIG_SMALL("Android VisualOn AMR-WB "
                                            "(Adaptive Multi-Rate Wide-Band)"),
-    .priv_class     = &amrwb_class,
+    .priv_class     = &class,
 };

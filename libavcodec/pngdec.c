@@ -28,7 +28,6 @@
 #include "internal.h"
 #include "png.h"
 #include "pngdsp.h"
-#include "thread.h"
 
 /* TODO:
  * - add 16 bit depth support
@@ -36,13 +35,15 @@
 
 #include <zlib.h>
 
+//#define DEBUG
+
 typedef struct PNGDecContext {
     PNGDSPContext dsp;
     AVCodecContext *avctx;
 
     GetByteContext gb;
-    ThreadFrame last_picture;
-    ThreadFrame picture;
+    AVFrame picture1, picture2;
+    AVFrame *current_picture, *last_picture;
 
     int state;
     int width, height;
@@ -60,10 +61,7 @@ typedef struct PNGDecContext {
     uint32_t palette[256];
     uint8_t *crow_buf;
     uint8_t *last_row;
-    int last_row_size;
     uint8_t *tmp_row;
-    uint8_t *buffer;
-    int buffer_size;
     int pass;
     int crow_size; /* compressed row size (include filter type) */
     int row_size; /* decompressed row size */
@@ -373,8 +371,8 @@ static int png_decode_idat(PNGDecContext *s, int length)
     while (s->zstream.avail_in > 0) {
         ret = inflate(&s->zstream, Z_PARTIAL_FLUSH);
         if (ret != Z_OK && ret != Z_STREAM_END) {
-            av_log(s->avctx, AV_LOG_ERROR, "inflate returned error %d\n", ret);
-            return AVERROR_EXTERNAL;
+            av_log(s->avctx, AV_LOG_ERROR, "inflate returned %d\n", ret);
+            return -1;
         }
         if (s->zstream.avail_out == 0) {
             if (!(s->state & PNG_ALLIMAGE)) {
@@ -510,15 +508,17 @@ static int decode_frame(AVCodecContext *avctx,
     PNGDecContext * const s = avctx->priv_data;
     const uint8_t *buf      = avpkt->data;
     int buf_size            = avpkt->size;
-    AVFrame *p;
+    AVFrame *picture        = data;
     AVDictionary *metadata  = NULL;
+    uint8_t *crow_buf_base  = NULL;
+    AVFrame *p;
     uint32_t tag, length;
     int64_t sig;
     int ret;
 
-    ff_thread_release_buffer(avctx, &s->last_picture);
-    FFSWAP(ThreadFrame, s->picture, s->last_picture);
-    p = s->picture.f;
+    FFSWAP(AVFrame *, s->current_picture, s->last_picture);
+    avctx->coded_frame = s->current_picture;
+    p = s->current_picture;
 
     bytestream2_init(&s->gb, buf, buf_size);
 
@@ -527,7 +527,7 @@ static int decode_frame(AVCodecContext *avctx,
     if (sig != PNGSIG &&
         sig != MNGSIG) {
         av_log(avctx, AV_LOG_ERROR, "Missing png signature\n");
-        return AVERROR_INVALIDDATA;
+        return -1;
     }
 
     s->y = s->state = 0;
@@ -538,8 +538,8 @@ static int decode_frame(AVCodecContext *avctx,
     s->zstream.opaque = NULL;
     ret = inflateInit(&s->zstream);
     if (ret != Z_OK) {
-        av_log(avctx, AV_LOG_ERROR, "inflateInit returned error %d\n", ret);
-        return AVERROR_EXTERNAL;
+        av_log(avctx, AV_LOG_ERROR, "inflateInit returned %d\n", ret);
+        return -1;
     }
     for (;;) {
         if (bytestream2_get_bytes_left(&s->gb) <= 0) {
@@ -642,11 +642,14 @@ static int decode_frame(AVCodecContext *avctx,
                                                  s->bit_depth, s->color_type);
                     goto fail;
                 }
+                if (p->data[0])
+                    avctx->release_buffer(avctx, p);
 
-                if (ff_thread_get_buffer(avctx, &s->picture, AV_GET_BUFFER_FLAG_REF) < 0)
+                p->reference = 3;
+                if (ff_get_buffer(avctx, p) < 0) {
+                    av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
                     goto fail;
-                ff_thread_finish_setup(avctx);
-
+                }
                 p->pict_type        = AV_PICTURE_TYPE_I;
                 p->key_frame        = 1;
                 p->interlaced_frame = !!s->interlace_type;
@@ -669,7 +672,7 @@ static int decode_frame(AVCodecContext *avctx,
                 if (avctx->pix_fmt == AV_PIX_FMT_PAL8)
                     memcpy(p->data[1], s->palette, 256 * sizeof(uint32_t));
                 /* empty row is used if differencing to the first row */
-                av_fast_padded_mallocz(&s->last_row, &s->last_row_size, s->row_size);
+                s->last_row = av_mallocz(s->row_size);
                 if (!s->last_row)
                     goto fail;
                 if (s->interlace_type ||
@@ -679,12 +682,12 @@ static int decode_frame(AVCodecContext *avctx,
                         goto fail;
                 }
                 /* compressed row */
-                av_fast_padded_malloc(&s->buffer, &s->buffer_size, s->row_size + 16);
-                if (!s->buffer)
+                crow_buf_base = av_malloc(s->row_size + 16);
+                if (!crow_buf_base)
                     goto fail;
 
                 /* we want crow_buf+1 to be 16-byte aligned */
-                s->crow_buf          = s->buffer + 15;
+                s->crow_buf          = crow_buf_base + 15;
                 s->zstream.avail_out = s->crow_size;
                 s->zstream.next_out  = s->crow_buf;
             }
@@ -759,7 +762,7 @@ static int decode_frame(AVCodecContext *avctx,
 
     if (s->bits_per_pixel == 1 && s->color_type == PNG_COLOR_TYPE_PALETTE){
         int i, j, k;
-        uint8_t *pd = p->data[0];
+        uint8_t *pd = s->current_picture->data[0];
         for (j = 0; j < s->height; j++) {
             i = s->width / 8;
             for (k = 7; k >= 1; k--)
@@ -780,7 +783,7 @@ static int decode_frame(AVCodecContext *avctx,
     }
     if (s->bits_per_pixel == 2){
         int i, j;
-        uint8_t *pd = p->data[0];
+        uint8_t *pd = s->current_picture->data[0];
         for (j = 0; j < s->height; j++) {
             i = s->width / 4;
             if (s->color_type == PNG_COLOR_TYPE_PALETTE){
@@ -809,7 +812,7 @@ static int decode_frame(AVCodecContext *avctx,
     }
     if (s->bits_per_pixel == 4){
         int i, j;
-        uint8_t *pd = p->data[0];
+        uint8_t *pd = s->current_picture->data[0];
         for (j = 0; j < s->height; j++) {
             i = s->width/2;
             if (s->color_type == PNG_COLOR_TYPE_PALETTE){
@@ -830,17 +833,16 @@ static int decode_frame(AVCodecContext *avctx,
     }
 
      /* handle p-frames only if a predecessor frame is available */
-     if (s->last_picture.f->data[0]) {
-         if (   !(avpkt->flags & AV_PKT_FLAG_KEY) && avctx->codec_tag != AV_RL32("MPNG")
-            && s->last_picture.f->width == p->width
-            && s->last_picture.f->height== p->height
-            && s->last_picture.f->format== p->format
+     if (s->last_picture->data[0] != NULL) {
+         if (   !(avpkt->flags & AV_PKT_FLAG_KEY)
+            && s->last_picture->width == s->current_picture->width
+            && s->last_picture->height== s->current_picture->height
+            && s->last_picture->format== s->current_picture->format
          ) {
             int i, j;
-            uint8_t *pd      = p->data[0];
-            uint8_t *pd_last = s->last_picture.f->data[0];
+            uint8_t *pd      = s->current_picture->data[0];
+            uint8_t *pd_last = s->last_picture->data[0];
 
-            ff_thread_await_progress(&s->last_picture, INT_MAX, 0);
             for (j = 0; j < s->height; j++) {
                 for (i = 0; i < s->width * s->bpp; i++) {
                     pd[i] += pd_last[i];
@@ -850,58 +852,38 @@ static int decode_frame(AVCodecContext *avctx,
             }
         }
     }
-    ff_thread_report_progress(&s->picture, INT_MAX, 0);
 
-    av_frame_set_metadata(p, metadata);
+    av_frame_set_metadata(&s->current_picture, metadata);
     metadata   = NULL;
-
-    if ((ret = av_frame_ref(data, s->picture.f)) < 0)
-        return ret;
-
+    *picture   = *s->current_picture;
     *got_frame = 1;
 
     ret = bytestream2_tell(&s->gb);
  the_end:
     inflateEnd(&s->zstream);
+    av_free(crow_buf_base);
     s->crow_buf = NULL;
+    av_freep(&s->last_row);
     av_freep(&s->tmp_row);
     return ret;
  fail:
     av_dict_free(&metadata);
-    ff_thread_report_progress(&s->picture, INT_MAX, 0);
-    ret = AVERROR_INVALIDDATA;
+    ret = -1;
     goto the_end;
-}
-
-static int update_thread_context(AVCodecContext *dst, const AVCodecContext *src)
-{
-    PNGDecContext *psrc = src->priv_data;
-    PNGDecContext *pdst = dst->priv_data;
-
-    if (dst == src)
-        return 0;
-
-    ff_thread_release_buffer(dst, &pdst->picture);
-    if (psrc->picture.f->data[0])
-        return ff_thread_ref_frame(&pdst->picture, &psrc->picture);
-
-    return 0;
 }
 
 static av_cold int png_dec_init(AVCodecContext *avctx)
 {
     PNGDecContext *s = avctx->priv_data;
 
-    s->avctx = avctx;
-    s->last_picture.f = av_frame_alloc();
-    s->picture.f = av_frame_alloc();
-    if (!s->last_picture.f || !s->picture.f)
-        return AVERROR(ENOMEM);
+    s->current_picture = &s->picture1;
+    s->last_picture    = &s->picture2;
+    avcodec_get_frame_defaults(&s->picture1);
+    avcodec_get_frame_defaults(&s->picture2);
 
-    if (!avctx->internal->is_copy) {
-        avctx->internal->allocate_progress = 1;
-        ff_pngdsp_init(&s->dsp);
-    }
+    ff_pngdsp_init(&s->dsp);
+
+    s->avctx = avctx;
 
     return 0;
 }
@@ -910,14 +892,10 @@ static av_cold int png_dec_end(AVCodecContext *avctx)
 {
     PNGDecContext *s = avctx->priv_data;
 
-    ff_thread_release_buffer(avctx, &s->last_picture);
-    av_frame_free(&s->last_picture.f);
-    ff_thread_release_buffer(avctx, &s->picture);
-    av_frame_free(&s->picture.f);
-    av_freep(&s->buffer);
-    s->buffer_size = 0;
-    av_freep(&s->last_row);
-    s->last_row_size = 0;
+    if (s->picture1.data[0])
+        avctx->release_buffer(avctx, &s->picture1);
+    if (s->picture2.data[0])
+        avctx->release_buffer(avctx, &s->picture2);
 
     return 0;
 }
@@ -930,8 +908,6 @@ AVCodec ff_png_decoder = {
     .init           = png_dec_init,
     .close          = png_dec_end,
     .decode         = decode_frame,
-    .init_thread_copy = ONLY_IF_THREADS_ENABLED(png_dec_init),
-    .update_thread_context = ONLY_IF_THREADS_ENABLED(update_thread_context),
-    .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS /*| CODEC_CAP_DRAW_HORIZ_BAND*/,
+    .capabilities   = CODEC_CAP_DR1 /*| CODEC_CAP_DRAW_HORIZ_BAND*/,
     .long_name      = NULL_IF_CONFIG_SMALL("PNG (Portable Network Graphics) image"),
 };
