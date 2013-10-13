@@ -1181,9 +1181,6 @@
 #define CONFIG_SRT_ENCODER 1
 #define CONFIG_SUBRIP_ENCODER 1
 #define CONFIG_XSUB_ENCODER 1
-#define CONFIG_PRORES_ANATOLIY_ENCODER 0
-#define CONFIG_PRORES_KOSTYA_ENCODER 0
-#define CONFIG_APPLEHTTP_PROTOCOL 0
 #define CONFIG_LIBFAAC_ENCODER 0
 #define CONFIG_LIBFDK_AAC_ENCODER 0
 #define CONFIG_LIBGSM_ENCODER 0
@@ -1589,8 +1586,8 @@
 #define CONFIG_FFRTMPCRYPT_PROTOCOL 1
 #define CONFIG_FFRTMPHTTP_PROTOCOL 1
 #define CONFIG_FILE_PROTOCOL 1
-#define CONFIG_FTP_PROTOCOL 1
-#define CONFIG_GOPHER_PROTOCOL 1
+#define CONFIG_FTP_PROTOCOL 0
+#define CONFIG_GOPHER_PROTOCOL 0
 #define CONFIG_HLS_PROTOCOL 1
 #define CONFIG_HTTP_PROTOCOL 1
 #define CONFIG_HTTPPROXY_PROTOCOL 1
@@ -1599,9 +1596,9 @@
 #define CONFIG_MMST_PROTOCOL 1
 #define CONFIG_MD5_PROTOCOL 1
 #define CONFIG_PIPE_PROTOCOL 1
-#define CONFIG_RTMP_PROTOCOL 1
-#define CONFIG_RTMPE_PROTOCOL 1
-#define CONFIG_RTMPS_PROTOCOL 1
+#define CONFIG_RTMP_PROTOCOL 0
+#define CONFIG_RTMPE_PROTOCOL 0
+#define CONFIG_RTMPS_PROTOCOL 0
 #define CONFIG_RTMPT_PROTOCOL 1
 #define CONFIG_RTMPTE_PROTOCOL 1
 #define CONFIG_RTMPTS_PROTOCOL 1
@@ -1617,5 +1614,8 @@
 #define CONFIG_LIBRTMPS_PROTOCOL 0
 #define CONFIG_LIBRTMPT_PROTOCOL 0
 #define CONFIG_LIBRTMPTE_PROTOCOL 0
-#define FFMPEG_CONFIGURATION "--enable-gpl --disable-static --enable-shared --enable-optimizations --disable-doc --disable-symver --enable-zlib --enable-pic --disable-debug --arch=arm --cpu=armv7-a --build_suffix= --cross-prefix=../../prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.7/bin/arm-linux-androideabi- --enable-cross-compile --sysroot=../../prebuilts/ndk/current/platforms/android-17/arch-arm --target-os=linux --extra-cflags='-DNDEBUG -mandroid -ftree-vectorize -ffunction-sections -funwind-tables -fomit-frame-pointer -funswitch-loops -finline-limit=300 -finline-functions -fpredictive-commoning -fgcse-after-reload -fipa-cp-clone -mfloat-abi=softfp -mfpu=neon -mtune=cortex-a9 -mvectorize-with-neon-quad -fstack-protector -fstrict-aliasing' --extra-ldflags='-Wl,--fix-cortex-a9 -march=armv7-a' --optflags=-O2 --disable-fast-unaligned"
+#define CONFIG_PRORES_ANATOLIY_ENCODER 0
+#define CONFIG_PRORES_KOSTYA_ENCODER 0
+#define CONFIG_APPLEHTTP_PROTOCOL 0
+#define FFMPEG_CONFIGURATION "--enable-avresample --enable-decoder=h264 --enable-demuxer=mov --disable-network --enable-gpl --disable-static --enable-shared --enable-optimizations --disable-doc --disable-symver --enable-zlib --enable-pic --enable-ffmpeg --enable-hwaccels --disable-outdevs --disable-ffplay --disable-ffprobe --disable-ffserver --disable-debug --disable-asm --disable-cli --arch=arm --cpu=armv7-a --cross-prefix=../../prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.7/bin/arm-linux-androideabi- --enable-cross-compile --sysroot=../../prebuilts/ndk/current/platforms/android-17/arch-arm --target-os=arm-linux --extra-cflags='-DNDEBUG -mandroid -ftree-vectorize -ffunction-sections -funwind-tables -fomit-frame-pointer -funswitch-loops -finline-limit=300 -finline-functions -fpredictive-commoning -fgcse-after-reload -fipa-cp-clone -mfloat-abi=softfp -mfpu=neon -mtune=cortex-a9 -mvectorize-with-neon-quad -fstack-protector -fstrict-aliasing' --extra-ldflags='-Wl,--fix-cortex-a9 -march=armv7-a' --optflags=-O2 --disable-fast-unaligned"
 #endif /* FFMPEG_CONFIG_H */
