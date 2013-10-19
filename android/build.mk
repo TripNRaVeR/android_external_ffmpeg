@@ -47,23 +47,13 @@ LOCAL_ARM_MODE := $(if $(filter yes,$(CONFIG_THUMB)),thumb,arm)
 LOCAL_SRC_FILES := $(C_FILES) $(if $(filter S,$(ASM_SUFFIX)),$(S_FILES))
 
 intermediates := $(local-intermediates-dir)
-ifeq ($(TARGET_ARCH),x86)
-GEN := $(S_OBJS:%=$(intermediates)/%)
-$(GEN): YASM := yasm
-$(GEN): YASMFLAGS := -felf -DPIC $(LOCAL_C_INCLUDES:%=-I%)
-$(GEN): PRIVATE_CUSTOM_TOOL = $(YASM) $(YASMFLAGS) -Pconfig.asm -o $@ $<
-$(GEN): $(intermediates)/%.o: $(LOCAL_PATH)/%.asm $(SUBDIR)config.asm
-	$(transform-generated-source)
-LOCAL_GENERATED_SOURCES += $(GEN)
-endif
 
 LOCAL_CFLAGS += \
 	-O3 -std=c99 -ftree-vectorize -fomit-frame-pointer \
 	-fpredictive-commoning -fgcse-after-reload -fipa-cp-clone \
 	-Wno-missing-field-initializers -Wno-parentheses \
 	-Wno-pointer-sign -Wno-sign-compare -Wno-switch \
-	$(if $(filter x86,$(TARGET_ARCH)),-fno-pic -fno-pie) \
-	$(if $(filter armv7-a-neon,$(TARGET_ARCH_VARIANT)),-mvectorize-with-neon-quad) \
+	$(if $(filter armv7-a-neon,$(TARGET_ARCH_VARIANT)),-mvectorize-with-neon-quad)
 
 LOCAL_LDFLAGS := -Wl,--no-fatal-warnings
 
