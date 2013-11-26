@@ -19,8 +19,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <stdint.h>
+
 #include "libavutil/crc.h"
-#include "libavutil/opt.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/opt.h"
 #include "libavutil/random_seed.h"
@@ -447,11 +448,13 @@ static int ogg_write_header(AVFormatContext *s)
             } while (j < i);
         oggstream->serial_num = serial_num;
 
+        av_dict_copy(&st->metadata, s->metadata, AV_DICT_DONT_OVERWRITE);
+
         st->priv_data = oggstream;
         if (st->codec->codec_id == AV_CODEC_ID_FLAC) {
             int err = ogg_build_flac_headers(st->codec, oggstream,
                                              st->codec->flags & CODEC_FLAG_BITEXACT,
-                                             &s->metadata);
+                                             &st->metadata);
             if (err) {
                 av_log(s, AV_LOG_ERROR, "Error writing FLAC headers\n");
                 av_freep(&st->priv_data);
@@ -460,7 +463,7 @@ static int ogg_write_header(AVFormatContext *s)
         } else if (st->codec->codec_id == AV_CODEC_ID_SPEEX) {
             int err = ogg_build_speex_headers(st->codec, oggstream,
                                               st->codec->flags & CODEC_FLAG_BITEXACT,
-                                              &s->metadata);
+                                              &st->metadata);
             if (err) {
                 av_log(s, AV_LOG_ERROR, "Error writing Speex headers\n");
                 av_freep(&st->priv_data);
@@ -469,7 +472,7 @@ static int ogg_write_header(AVFormatContext *s)
         } else if (st->codec->codec_id == AV_CODEC_ID_OPUS) {
             int err = ogg_build_opus_headers(st->codec, oggstream,
                                              st->codec->flags & CODEC_FLAG_BITEXACT,
-                                             &s->metadata);
+                                             &st->metadata);
             if (err) {
                 av_log(s, AV_LOG_ERROR, "Error writing Opus headers\n");
                 av_freep(&st->priv_data);
@@ -490,7 +493,7 @@ static int ogg_write_header(AVFormatContext *s)
             }
 
             p = ogg_write_vorbiscomment(7, st->codec->flags & CODEC_FLAG_BITEXACT,
-                                        &oggstream->header_len[1], &s->metadata,
+                                        &oggstream->header_len[1], &st->metadata,
                                         framing_bit);
             oggstream->header[1] = p;
             if (!p)

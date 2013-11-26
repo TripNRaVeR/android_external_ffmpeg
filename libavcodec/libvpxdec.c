@@ -90,9 +90,9 @@ static int vp8_decode(AVCodecContext *avctx,
         if ((int) img->d_w != avctx->width || (int) img->d_h != avctx->height) {
             av_log(avctx, AV_LOG_INFO, "dimension change! %dx%d -> %dx%d\n",
                    avctx->width, avctx->height, img->d_w, img->d_h);
-            if (av_image_check_size(img->d_w, img->d_h, 0, avctx))
-                return AVERROR_INVALIDDATA;
-            avcodec_set_dimensions(avctx, img->d_w, img->d_h);
+            ret = ff_set_dimensions(avctx, img->d_w, img->d_h);
+            if (ret < 0)
+                return ret;
         }
         if ((ret = ff_get_buffer(avctx, picture, 0)) < 0)
             return ret;
@@ -118,6 +118,7 @@ static av_cold int vp8_init(AVCodecContext *avctx)
 
 AVCodec ff_libvpx_vp8_decoder = {
     .name           = "libvpx",
+    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP8"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP8,
     .priv_data_size = sizeof(VP8Context),
@@ -125,7 +126,6 @@ AVCodec ff_libvpx_vp8_decoder = {
     .close          = vp8_free,
     .decode         = vp8_decode,
     .capabilities   = CODEC_CAP_AUTO_THREADS | CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP8"),
 };
 #endif /* CONFIG_LIBVPX_VP8_DECODER */
 
@@ -137,13 +137,13 @@ static av_cold int vp9_init(AVCodecContext *avctx)
 
 AVCodec ff_libvpx_vp9_decoder = {
     .name           = "libvpx-vp9",
+    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP9"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_VP9,
     .priv_data_size = sizeof(VP8Context),
     .init           = vp9_init,
     .close          = vp8_free,
     .decode         = vp8_decode,
-    .capabilities   = CODEC_CAP_AUTO_THREADS | CODEC_CAP_EXPERIMENTAL,
-    .long_name      = NULL_IF_CONFIG_SMALL("libvpx VP9"),
+    .capabilities   = CODEC_CAP_AUTO_THREADS | CODEC_CAP_DR1 | CODEC_CAP_EXPERIMENTAL,
 };
 #endif /* CONFIG_LIBVPX_VP9_DECODER */

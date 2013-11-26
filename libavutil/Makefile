@@ -81,6 +81,7 @@ OBJS = adler32.o                                                        \
        eval.o                                                           \
        fifo.o                                                           \
        file.o                                                           \
+       file_open.o                                                      \
        float_dsp.o                                                      \
        frame.o                                                          \
        hash.o                                                           \
@@ -89,7 +90,8 @@ OBJS = adler32.o                                                        \
        intfloat_readwrite.o                                             \
        intmath.o                                                        \
        lfg.o                                                            \
-       lls.o                                                            \
+       lls1.o                                                           \
+       lls2.o                                                           \
        log.o                                                            \
        log2_tab.o                                                       \
        mathematics.o                                                    \
@@ -142,7 +144,8 @@ TESTPROGS = adler32                                                     \
             fifo                                                        \
             hmac                                                        \
             lfg                                                         \
-            lls                                                         \
+            lls1                                                        \
+            lls2                                                        \
             md5                                                         \
             murmur3                                                     \
             opt                                                         \
@@ -154,10 +157,14 @@ TESTPROGS = adler32                                                     \
             sha                                                         \
             sha512                                                      \
             tree                                                        \
+            utf8                                                        \
             xtea                                                        \
 
 TESTPROGS-$(HAVE_LZO1X_999_COMPRESS) += lzo
 
-TOOLS = ffhash ffeval ffescape
+TOOLS = crypto_bench ffhash ffeval ffescape
+
+tools/crypto_bench$(EXESUF): ELIBS += $(if $(VERSUS),$(subst +, -l,+$(VERSUS)),)
+tools/crypto_bench$(EXESUF): CFLAGS += -DUSE_EXT_LIBS=0$(if $(VERSUS),$(subst +,+USE_,+$(VERSUS)),)
 
 $(SUBDIR)lzo-test$(EXESUF): ELIBS = -llzo2
