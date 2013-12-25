@@ -47,6 +47,7 @@ HEADERS = adler32.h                                                     \
           samplefmt.h                                                   \
           sha.h                                                         \
           sha512.h                                                      \
+          stereo3d.h                                                    \
           time.h                                                        \
           timecode.h                                                    \
           timestamp.h                                                   \
@@ -62,7 +63,8 @@ ARCH_HEADERS = bswap.h                                                  \
                intreadwrite.h                                           \
                timer.h                                                  \
 
-BUILT_HEADERS = avconfig.h
+BUILT_HEADERS = avconfig.h                                              \
+                ffversion.h
 
 OBJS = adler32.o                                                        \
        aes.o                                                            \
@@ -109,6 +111,7 @@ OBJS = adler32.o                                                        \
        samplefmt.o                                                      \
        sha.o                                                            \
        sha512.o                                                         \
+       stereo3d.o                                                       \
        time.o                                                           \
        timecode.o                                                       \
        tree.o                                                           \
@@ -120,6 +123,9 @@ OBJS-$(CONFIG_LZO)                      += lzo.o
 OBJS-$(CONFIG_OPENCL)                   += opencl.o opencl_internal.o
 
 OBJS += $(COMPAT_OBJS:%=../compat/%)
+
+# Windows resource file
+SLIBOBJS-$(HAVE_GNU_WINDRES)            += avutilres.o
 
 SKIPHEADERS          = old_pix_fmts.h
 

@@ -371,4 +371,23 @@ int ff_generate_avci_extradata(AVStream *st);
  */
 int ff_alloc_extradata(AVCodecContext *avctx, int size);
 
+/**
+ * Allocate extradata with additional FF_INPUT_BUFFER_PADDING_SIZE at end
+ * which is always set to 0 and fill it from pb.
+ *
+ * @param size size of extradata
+ * @return >= 0 if OK, AVERROR_xxx on error
+ */
+int ff_get_extradata(AVCodecContext *avctx, AVIOContext *pb, int size);
+
+/**
+ * add frame for rfps calculation.
+ *
+ * @param dts timestamp of the i-th frame
+ * @return 0 if OK, AVERROR_xxx on error
+ */
+int ff_rfps_add_frame(AVFormatContext *ic, AVStream *st, int64_t dts);
+
+void ff_rfps_calculate(AVFormatContext *ic);
+
 #endif /* AVFORMAT_INTERNAL_H */

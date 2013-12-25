@@ -43,11 +43,6 @@ extern const char program_name[];
  */
 extern const int program_birth_year;
 
-/**
- * this year, defined by the program for show_banner()
- */
-extern const int this_year;
-
 extern AVCodecContext *avcodec_opts[AVMEDIA_TYPE_NB];
 extern AVFormatContext *avformat_opts;
 extern struct SwsContext *sws_opts;
@@ -103,7 +98,11 @@ int opt_max_alloc(void *optctx, const char *opt, const char *arg);
 
 int opt_codec_debug(void *optctx, const char *opt, const char *arg);
 
+#if CONFIG_OPENCL
 int opt_opencl(void *optctx, const char *opt, const char *arg);
+
+int opt_opencl_bench(void *optctx, const char *opt, const char *arg);
+#endif
 
 /**
  * Limit the execution time.
