@@ -1,5 +1,5 @@
 MAIN_MAKEFILE=1
-include ffbuild/config.mak
+include config.mak
 
 vpath %.c    $(SRC_PATH)
 vpath %.cpp  $(SRC_PATH)
@@ -66,8 +66,7 @@ SKIPHEADERS = compat/w32pthreads.h
 # first so "all" becomes default target
 all: all-yes
 
-include $(SRC_PATH)/tools/Makefile
-include $(SRC_PATH)/ffbuild/common.mak
+include $(SRC_PATH)/common.mak
 
 FF_EXTRALIBS := $(FFEXTRALIBS)
 FF_DEP_LIBS  := $(DEP_LIBS)
@@ -91,16 +90,16 @@ CONFIGURABLE_COMPONENTS =                                           \
     $(SRC_PATH)/libavcodec/bitstream_filters.c                      \
     $(SRC_PATH)/libavformat/protocols.c                             \
 
-config.h: ffbuild/.config
-ffbuild/.config: $(CONFIGURABLE_COMPONENTS)
+config.h: .config
+.config: $(wildcard $(FFLIBS:%=$(SRC_PATH)/lib%/all*.c))
 	@-tput bold 2>/dev/null
-	@-printf '\nWARNING: $(?) newer than config.h, rerun configure\n\n'
+	@-printf '\nWARNING: $(?F) newer than config.h, rerun configure\n\n'
 	@-tput sgr0 2>/dev/null
 
 SUBDIR_VARS := CLEANFILES EXAMPLES FFLIBS HOSTPROGS TESTPROGS TOOLS      \
                HEADERS ARCH_HEADERS BUILT_HEADERS SKIPHEADERS            \
                ARMV5TE-OBJS ARMV6-OBJS ARMV8-OBJS VFP-OBJS NEON-OBJS     \
-               ALTIVEC-OBJS VSX-OBJS MMX-OBJS YASM-OBJS                  \
+               ALTIVEC-OBJS VSX-OBJS MMX-OBJS                            \
                MIPSFPU-OBJS MIPSDSPR2-OBJS MIPSDSP-OBJS MSA-OBJS         \
                MMI-OBJS OBJS SLIBOBJS HOSTOBJS TESTOBJS
 
@@ -115,7 +114,7 @@ SUBDIR := $(1)/
 include $(SRC_PATH)/$(1)/Makefile
 -include $(SRC_PATH)/$(1)/$(ARCH)/Makefile
 -include $(SRC_PATH)/$(1)/$(INTRINSICS)/Makefile
-include $(SRC_PATH)/ffbuild/library.mak
+include $(SRC_PATH)/library.mak
 endef
 
 $(foreach D,$(FFLIBS),$(eval $(call DOSUBDIR,lib$(D))))
@@ -142,10 +141,10 @@ $(PROGS): %$(PROGSSUF)$(EXESUF): %$(PROGSSUF)_g$(EXESUF)
 %$(PROGSSUF)_g$(EXESUF): %.o $(FF_DEP_LIBS)
 	$(LD) $(LDFLAGS) $(LDEXEFLAGS) $(LD_O) $(OBJS-$*) $(FF_EXTRALIBS)
 
-VERSION_SH  = $(SRC_PATH)/ffbuild/version.sh
+VERSION_SH  = $(SRC_PATH)/version.sh
 GIT_LOG     = $(SRC_PATH)/.git/logs/HEAD
 
-.version: $(wildcard $(GIT_LOG)) $(VERSION_SH) ffbuild/config.mak
+.version: $(wildcard $(GIT_LOG)) $(VERSION_SH) config.mak
 .version: M=@
 
 libavutil/ffversion.h .version:
@@ -195,7 +194,7 @@ clean::
 distclean::
 	$(RM) $(DISTCLEANSUFFIXES)
 	$(RM) .version avversion.h config.asm config.h mapfile  \
-		ffbuild/.config ffbuild/config.* libavutil/avconfig.h \
+		config.* .config libavutil/avconfig.h \
 		version.h libavutil/ffversion.h libavcodec/codec_names.h \
 		libavcodec/bsf_list.c libavformat/protocol_list.c
 ifeq ($(SRC_LINK),src)

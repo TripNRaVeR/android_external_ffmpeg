@@ -1,3 +1,5 @@
+include $(SUBDIR)../config.mak
+
 NAME = avutil
 DESC = FFmpeg utility library
 

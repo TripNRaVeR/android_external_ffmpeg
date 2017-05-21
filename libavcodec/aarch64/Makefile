@@ -22,7 +22,7 @@ OBJS-$(CONFIG_VP9_DECODER)              += aarch64/vp9dsp_init_10bpp_aarch64.o \
 # ARMv8 optimizations
 
 # subsystems
-ARMV8-OBJS-$(CONFIG_VIDEODSP)           += aarch64/videodsp.o
+OBJS-$(CONFIG_VIDEODSP)                 += aarch64/videodsp.o
 
 # NEON optimizations
 

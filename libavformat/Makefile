@@ -1,3 +1,5 @@
+include $(SUBDIR)../config.mak
+
 NAME = avformat
 DESC = FFmpeg container format library
 
@@ -18,7 +20,6 @@ OBJS = allformats.o         \
        options.o            \
        os_support.o         \
        qtpalette.o          \
-       protocols.o          \
        riff.o               \
        sdp.o                \
        url.o                \

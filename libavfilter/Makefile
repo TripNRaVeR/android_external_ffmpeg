@@ -1,3 +1,5 @@
+include $(SUBDIR)../config.mak
+
 NAME = avfilter
 DESC = FFmpeg audio/video filtering library
 

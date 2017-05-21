@@ -42,9 +42,11 @@ static const char *check_nan_suffix(const char *s)
 #undef strtod
 double strtod(const char *, char **);
 
+double avpriv_strtod(const char *nptr, char **endptr);
+
 double avpriv_strtod(const char *nptr, char **endptr)
 {
-    const char *end;
+    char *end;
     double res;
 
     /* Skip leading spaces */
@@ -81,13 +83,13 @@ double avpriv_strtod(const char *nptr, char **endptr)
                !av_strncasecmp(nptr, "+0x", 3)) {
         /* FIXME this doesn't handle exponents, non-integers (float/double)
          * and numbers too large for long long */
-        res = strtoll(nptr, (char **)&end, 16);
+        res = strtoll(nptr, &end, 16);
     } else {
-        res = strtod(nptr, (char **)&end);
+        res = strtod(nptr, &end);
     }
 
     if (endptr)
-        *endptr = (char *)end;
+        *endptr = end;
 
     return res;
 }

@@ -77,7 +77,7 @@ Help options:
   --list-filters           show all available filters
 
 Standard options:
-  --logfile=FILE           log tests and output to FILE [ffbuild/config.log]
+  --logfile=FILE           log tests and output to FILE [config.log]
   --disable-logging        do not log configure debug information
   --fatal-warnings         fail if any configure warning is generated
   --prefix=PREFIX          install in PREFIX [$prefix_default]
@@ -2004,6 +2004,7 @@ TOOLCHAIN_FEATURES="
     asm_mod_q
     attribute_may_alias
     attribute_packed
+    blocks_extension
     ebp_available
     ebx_available
     gnu_as
@@ -2599,7 +2600,7 @@ d3d11va_deps="d3d11_h dxva_h ID3D11VideoDecoder ID3D11VideoContext"
 dxva2_deps="dxva2api_h DXVA2_ConfigPictureDecode"
 dxva2_extralibs="-luser32"
 dxva2_lib_deps="dxva2"
-vda_framework_deps="VideoDecodeAcceleration_VDADecoder_h"
+vda_framework_deps="VideoDecodeAcceleration_VDADecoder_h blocks_extension"
 vda_framework_extralibs="-framework VideoDecodeAcceleration"
 vda_deps="vda_framework pthreads"
 vda_extralibs="-framework CoreFoundation -framework QuartzCore"
@@ -3239,7 +3240,7 @@ doc_deps_any="manpages htmlpages podpages txtpages"
 
 # default parameters
 
-logfile="ffbuild/config.log"
+logfile="config.log"
 
 # installation paths
 prefix_default="/usr/local"
@@ -3389,6 +3390,7 @@ MUXER_LIST=$(find_things    muxer    _MUX     libavformat/allformats.c)
 DEMUXER_LIST=$(find_things  demuxer  DEMUX    libavformat/allformats.c)
 OUTDEV_LIST=$(find_things   outdev   OUTDEV   libavdevice/alldevices.c)
 INDEV_LIST=$(find_things    indev    _IN      libavdevice/alldevices.c)
+PROTOCOL_LIST=$(find_things protocol PROTOCOL libavformat/allformats.c)
 FILTER_LIST=$(find_things   filter   FILTER   libavfilter/allfilters.c)
 
 find_things_extern(){
@@ -3399,7 +3401,6 @@ find_things_extern(){
 }
 
 BSF_LIST=$(find_things_extern bsf AVBitStreamFilter libavcodec/bitstream_filters.c)
-PROTOCOL_LIST=$(find_things_extern protocol URLProtocol libavformat/protocols.c)
 
 ALL_COMPONENTS="
     $BSF_LIST
@@ -3600,7 +3601,6 @@ disable_components(){
 
 map 'disable_components $v' $LIBRARY_LIST
 
-mkdir -p ffbuild
 echo "# $0 $FFMPEG_CONFIGURATION" > $logfile
 set >> $logfile
 
@@ -3770,19 +3770,24 @@ elif ! check_cmd mktemp -u XXXXXX; then
     # simple replacement for missing mktemp
     # NOT SAFE FOR GENERAL USE
     mktemp(){
-        echo "${2%%XXX*}.${HOSTNAME}.${UID}.$$"
+        tmpname="${2%%XXX*}.${HOSTNAME}.${UID}.$$"
+        echo "$tmpname"
+        mkdir "$tmpname"
     }
 fi
 
+FFTMPDIR=$(mktemp -d "${TMPDIR}/ffconf.XXXXXXXX" 2> /dev/null) ||
+    die "Unable to create temporary directory in $TMPDIR."
+
 tmpfile(){
-    tmp=$(mktemp -u "${TMPDIR}/ffconf.XXXXXXXX")$2 &&
-        (set -C; exec > $tmp) 2>/dev/null ||
-        die "Unable to create temporary file in $TMPDIR."
-    append TMPFILES $tmp
+    tmp="${FFTMPDIR}/test"$2
+    (set -C; exec > $tmp) 2> /dev/null ||
+        die "Unable to create temporary file in $FFTMPDIR."
     eval $1=$tmp
 }
 
-trap 'rm -f -- $TMPFILES' EXIT
+trap 'rm -rf -- "$FFTMPDIR"' EXIT
+trap 'exit 2' INT
 
 tmpfile TMPASM .asm
 tmpfile TMPC   .c
@@ -3860,6 +3865,7 @@ msvc_common_flags(){
             # specific filters, they must be specified here as well or else the
             # generic catch all at the bottom will print the original flag.
             -Wall)                ;;
+            -Wextra)              ;;
             -std=c99)             ;;
             # Common flags
             -fomit-frame-pointer) ;;
@@ -3885,7 +3891,9 @@ msvc_flags(){
     msvc_common_flags "$@"
     for flag; do
         case $flag in
-            -Wall)                echo -W4 -wd4244 -wd4127 -wd4018 -wd4389     \
+            -Wall)                echo -W3 -wd4018 -wd4146 -wd4244 -wd4305     \
+                                       -wd4554 ;;
+            -Wextra)              echo -W4 -wd4244 -wd4127 -wd4018 -wd4389     \
                                        -wd4146 -wd4057 -wd4204 -wd4706 -wd4305 \
                                        -wd4152 -wd4324 -we4013 -wd4100 -wd4214 \
                                        -wd4307 \
@@ -5171,7 +5179,7 @@ esc(){
     echo "$*" | sed 's/%/%25/g;s/:/%3a/g'
 }
 
-echo "config:$arch:$subarch:$cpu:$target_os:$(esc $cc_ident):$(esc $FFMPEG_CONFIGURATION)" > ffbuild/config.fate
+echo "config:$arch:$subarch:$cpu:$target_os:$(esc $cc_ident):$(esc $FFMPEG_CONFIGURATION)" > config.fate
 
 check_cpp_condition stdlib.h "defined(__PIC__) || defined(__pic__) || defined(PIC)" && enable_weak pic
 
@@ -6176,6 +6184,10 @@ check_disable_warning_headers(){
 check_disable_warning_headers -Wno-deprecated-declarations
 check_disable_warning_headers -Wno-unused-variable
 
+check_cc <<EOF && enable blocks_extension
+void (^block)(void);
+EOF
+
 # add some linker flags
 check_ldflags -Wl,--warn-common
 check_ldflags -Wl,-rpath-link=libpostproc:libswresample:libswscale:libavfilter:libavdevice:libavformat:libavcodec:libavutil:libavresample
@@ -6682,9 +6694,9 @@ test -e Makefile || echo "include $source_path/Makefile" > Makefile
 
 enabled stripping || strip="echo skipping strip"
 
-config_files="$TMPH ffbuild/config.mak doc/config.texi"
+config_files="$TMPH config.mak doc/config.texi"
 
-cat > ffbuild/config.mak <<EOF
+cat > config.mak <<EOF
 # Automatically generated by configure - do not modify!
 ifndef FFMPEG_CONFIG_MAK
 FFMPEG_CONFIG_MAK=1
@@ -6816,11 +6828,11 @@ LIBFUZZER_PATH=$libfuzzer_path
 IGNORE_TESTS=$ignore_tests
 EOF
 
-map 'eval echo "${v}_FFLIBS=\$${v}_deps" >> ffbuild/config.mak' $LIBRARY_LIST
+map 'eval echo "${v}_FFLIBS=\$${v}_deps" >> config.mak' $LIBRARY_LIST
 
 print_program_extralibs(){
     eval "program_extralibs=\$${1}_extralibs"
-    eval echo "EXTRALIBS-${1}=${program_extralibs}" >> ffbuild/config.mak
+    eval echo "EXTRALIBS-${1}=${program_extralibs}" >> config.mak
 }
 
 map 'print_program_extralibs $v' $PROGRAM_LIST
@@ -6870,11 +6882,11 @@ print_config CONFIG_ "$config_files" $CONFIG_LIST       \
                                      $ALL_COMPONENTS    \
 
 echo "#endif /* FFMPEG_CONFIG_H */" >> $TMPH
-echo "endif # FFMPEG_CONFIG_MAK" >> ffbuild/config.mak
+echo "endif # FFMPEG_CONFIG_MAK" >> config.mak
 
 # Do not overwrite an unchanged config.h to avoid superfluous rebuilds.
 cp_if_changed $TMPH config.h
-touch ffbuild/.config
+touch .config
 
 enabled yasm && cp_if_changed $TMPASM config.asm
 
@@ -6905,7 +6917,6 @@ print_enabled_components(){
 }
 
 print_enabled_components libavcodec/bsf_list.c AVBitStreamFilter bitstream_filters $BSF_LIST
-print_enabled_components libavformat/protocol_list.c URLProtocol url_protocols $PROTOCOL_LIST
 
 if test -n "$WARNINGS"; then
     printf "\n%s%s$WARNINGS%s" "$warn_color" "$bold_color" "$reset_color"
@@ -6914,7 +6925,7 @@ fi
 
 # Settings for pkg-config files
 
-cat > ffbuild/config.sh <<EOF
+cat > config.sh <<EOF
 # Automatically generated by configure - do not modify!
 shared=$shared
 build_suffix=$build_suffix
@@ -6939,5 +6950,5 @@ EOF
 
 for lib in $LIBRARY_LIST; do
     lib_deps="$(eval echo \$${lib}_deps)"
-    echo ${lib}_deps=\"$lib_deps\" >> ffbuild/config.sh
+    echo ${lib}_deps=\"$lib_deps\" >> config.sh
 done

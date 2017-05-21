@@ -1,3 +1,5 @@
+include $(SUBDIR)../config.mak
+
 NAME = swscale
 DESC = FFmpeg image rescaling library
 

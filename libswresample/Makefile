@@ -1,3 +1,5 @@
+include $(SUBDIR)../config.mak
+
 NAME = swresample
 DESC = FFmpeg audio resampling library
 FFLIBS = avutil

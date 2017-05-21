@@ -1,3 +1,5 @@
+include $(SUBDIR)../config.mak
+
 NAME    = avdevice
 DESC    = FFmpeg device handling library
 

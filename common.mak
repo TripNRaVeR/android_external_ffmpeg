@@ -2,6 +2,9 @@
 # common bits used by all libraries
 #
 
+# first so "all" becomes default target
+all: all-yes
+
 DEFAULT_YASMD=.dbg
 
 ifeq ($(DBG),1)
@@ -15,7 +18,7 @@ ifndef SUBDIR
 ifndef V
 Q      = @
 ECHO   = printf "$(1)\t%s\n" $(2)
-BRIEF  = CC CXX OBJCC HOSTCC HOSTLD AS YASM AR LD STRIP CP WINDRES NVCC
+BRIEF  = CC CXX OBJCC HOSTCC HOSTLD AS YASM AR LD STRIP CP WINDRES
 SILENT = DEPCC DEPHOSTCC DEPAS DEPYASM RANLIB RM
 
 MSG    = $@
@@ -36,9 +39,8 @@ CCFLAGS     = $(CPPFLAGS) $(CFLAGS)
 OBJCFLAGS  += $(EOBJCFLAGS)
 OBJCCFLAGS  = $(CPPFLAGS) $(CFLAGS) $(OBJCFLAGS)
 ASFLAGS    := $(CPPFLAGS) $(ASFLAGS)
-CXXFLAGS   := $(CPPFLAGS) $(CFLAGS) $(CXXFLAGS)
+CXXFLAGS   += $(CPPFLAGS) $(CFLAGS)
 YASMFLAGS  += $(IFLAGS:%=%/) -Pconfig.asm
-NVCCFLAGS  += -ptx
 
 HOSTCCFLAGS = $(IFLAGS) $(HOSTCPPFLAGS) $(HOSTCFLAGS)
 LDFLAGS    := $(ALLFFLIBS:%=$(LD_PATH)lib%) $(LDFLAGS)
@@ -53,7 +55,6 @@ COMPILE_CXX = $(call COMPILE,CXX)
 COMPILE_S = $(call COMPILE,AS)
 COMPILE_M = $(call COMPILE,OBJCC)
 COMPILE_HOSTC = $(call COMPILE,HOSTCC)
-COMPILE_NVCC = $(call COMPILE,NVCC)
 
 %.o: %.c
 	$(COMPILE_C)
@@ -73,15 +74,6 @@ COMPILE_NVCC = $(call COMPILE,NVCC)
 %_host.o: %.c
 	$(COMPILE_HOSTC)
 
-%$(DEFAULT_YASMD).asm: %.asm
-	$(DEPYASM) $(YASMFLAGS) -I $(<D)/ -M -o $@ $< > $(@:.asm=.d)
-	$(YASM) $(YASMFLAGS) -I $(<D)/ -e $< | sed '/^%/d;/^$$/d;' > $@
-
-%.o: %.asm
-	$(DEPYASM) $(YASMFLAGS) -I $(<D)/ -M -o $@ $< > $(@:.o=.d)
-	$(YASM) $(YASMFLAGS) -I $(<D)/ -o $@ $(patsubst $(SRC_PATH)/%,$(SRC_LINK)/%,$<)
-	-$(if $(ASMSTRIPFLAGS), $(STRIP) $(ASMSTRIPFLAGS) $@)
-
 %.o: %.rc
 	$(WINDRES) $(IFLAGS) --preprocessor "$(DEPWINDRES) -E -xc-header -DRC_INVOKED $(CC_DEPFLAGS)" -o $@ $<
 
@@ -91,13 +83,12 @@ COMPILE_NVCC = $(call COMPILE,NVCC)
 %.h.c:
 	$(Q)echo '#include "$*.h"' >$@
 
-%.ptx: %.cu
-	$(COMPILE_NVCC)
+%.ver: %.v
+	$(Q)sed 's/$$MAJOR/$($(basename $(@F))_VERSION_MAJOR)/' $^ | sed -e 's/:/:\
+/' -e 's/; /;\
+/g' > $@
 
-%.ptx.c: %.ptx
-	$(Q)sh $(SRC_PATH)/compat/cuda/ptx2c.sh $@ $(patsubst $(SRC_PATH)/%,$(SRC_LINK)/%,$<)
-
-%.c %.h %.pc %.ver %.version: TAG = GEN
+%.c %.h: TAG = GEN
 
 # Dummy rule to stop make trying to rebuild removed or renamed headers
 %.h:
@@ -111,7 +102,7 @@ COMPILE_NVCC = $(call COMPILE,NVCC)
 $(OBJS):
 endif
 
-include $(SRC_PATH)/ffbuild/arch.mak
+include $(SRC_PATH)/arch.mak
 
 OBJS      += $(OBJS-yes)
 SLIBOBJS  += $(SLIBOBJS-yes)
@@ -123,8 +114,8 @@ FFEXTRALIBS := $(LDLIBS:%=$(LD_LIB)) $(EXTRALIBS)
 
 OBJS      := $(sort $(OBJS:%=$(SUBDIR)%))
 SLIBOBJS  := $(sort $(SLIBOBJS:%=$(SUBDIR)%))
-TESTOBJS  := $(TESTOBJS:%=$(SUBDIR)tests/%) $(TESTPROGS:%=$(SUBDIR)tests/%.o)
-TESTPROGS := $(TESTPROGS:%=$(SUBDIR)tests/%$(EXESUF))
+TESTOBJS  := $(TESTOBJS:%=$(SUBDIR)%) $(TESTPROGS:%=$(SUBDIR)%-test.o)
+TESTPROGS := $(TESTPROGS:%=$(SUBDIR)%-test$(EXESUF))
 HOSTOBJS  := $(HOSTPROGS:%=$(SUBDIR)%.o)
 HOSTPROGS := $(HOSTPROGS:%=$(SUBDIR)%$(HOSTEXESUF))
 TOOLS     += $(TOOLS-yes)
@@ -141,10 +132,8 @@ ALLHEADERS := $(subst $(SRC_DIR)/,$(SUBDIR),$(wildcard $(SRC_DIR)/*.h $(SRC_DIR)
 SKIPHEADERS += $(ARCH_HEADERS:%=$(ARCH)/%) $(SKIPHEADERS-)
 SKIPHEADERS := $(SKIPHEADERS:%=$(SUBDIR)%)
 HOBJS        = $(filter-out $(SKIPHEADERS:.h=.h.o),$(ALLHEADERS:.h=.h.o))
-PTXOBJS      = $(filter %.ptx.o,$(OBJS))
-$(HOBJS):     CCFLAGS += $(CFLAGS_HEADERS)
 checkheaders: $(HOBJS)
-.SECONDARY:   $(HOBJS:.o=.c) $(PTXOBJS:.o=.c) $(PTXOBJS:.o=)
+.SECONDARY:   $(HOBJS:.o=.c)
 
 alltools: $(TOOLS)
 
@@ -152,7 +141,7 @@ $(HOSTOBJS): %.o: %.c
 	$(COMPILE_HOSTC)
 
 $(HOSTPROGS): %$(HOSTEXESUF): %.o
-	$(HOSTLD) $(HOSTLDFLAGS) $(HOSTLD_O) $^ $(HOSTEXTRALIBS)
+	$(HOSTLD) $(HOSTLDFLAGS) $(HOSTLD_O) $^ $(HOSTLIBS)
 
 $(OBJS):     | $(sort $(dir $(OBJS)))
 $(HOBJS):    | $(sort $(dir $(HOBJS)))
@@ -163,13 +152,15 @@ $(TOOLOBJS): | tools
 
 OBJDIRS := $(OBJDIRS) $(dir $(OBJS) $(HOBJS) $(HOSTOBJS) $(SLIBOBJS) $(TESTOBJS))
 
-CLEANSUFFIXES     = *.d *.o *~ *.h.c *.gcda *.gcno *.map *.ver *.version *.ho *$(DEFAULT_YASMD).asm *.ptx *.ptx.c
+CLEANSUFFIXES     = *.d *.o *~ *.h.c *.map *.ver *.ver-sol2 *.ho *.gcno *.gcda *$(DEFAULT_YASMD).asm
 DISTCLEANSUFFIXES = *.pc
 LIBSUFFIXES       = *.a *.lib *.so *.so.* *.dylib *.dll *.def *.dll.a
 
 define RULES
 clean::
-	$(RM) $(HOSTPROGS) $(TESTPROGS) $(TOOLS)
+	$(RM) $(OBJS) $(OBJS:.o=.d) $(OBJS:.o=$(DEFAULT_YASMD).d)
+	$(RM) $(HOSTPROGS)
+	$(RM) $(TOOLS)
 endef
 
 $(eval $(RULES))
