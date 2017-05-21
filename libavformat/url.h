@@ -37,7 +37,7 @@ extern const AVClass ffurl_context_class;
 
 typedef struct URLContext {
     const AVClass *av_class;    /**< information for av_log(). Set by url_open(). */
-    const struct URLProtocol *prot;
+    struct URLProtocol *prot;
     void *priv_data;
     char *filename;             /**< specified URL */
     int flags;
@@ -78,6 +78,7 @@ typedef struct URLProtocol {
     int     (*url_write)(URLContext *h, const unsigned char *buf, int size);
     int64_t (*url_seek)( URLContext *h, int64_t pos, int whence);
     int     (*url_close)(URLContext *h);
+    struct URLProtocol *next;
     int (*url_read_pause)(URLContext *h, int pause);
     int64_t (*url_read_seek)(URLContext *h, int stream_index,
                              int64_t timestamp, int flags);
@@ -137,15 +138,12 @@ int ffurl_connect(URLContext *uc, AVDictionary **options);
  * @param options  A dictionary filled with protocol-private options. On return
  * this parameter will be destroyed and replaced with a dict containing options
  * that were not found. May be NULL.
- * @param parent An enclosing URLContext, whose generic options should
- *               be applied to this URLContext as well.
  * @return >= 0 in case of success, a negative value corresponding to an
  * AVERROR code in case of failure
  */
 int ffurl_open_whitelist(URLContext **puc, const char *filename, int flags,
                const AVIOInterruptCB *int_cb, AVDictionary **options,
-               const char *whitelist, const char* blacklist,
-               URLContext *parent);
+               const char *whitelist);
 
 int ffurl_open(URLContext **puc, const char *filename, int flags,
                const AVIOInterruptCB *int_cb, AVDictionary **options);
@@ -269,10 +267,22 @@ int ffurl_get_short_seek(URLContext *h);
 int ffurl_shutdown(URLContext *h, int flags);
 
 /**
+ * Register the URLProtocol protocol.
+ */
+int ffurl_register_protocol(URLProtocol *protocol);
+
+/**
  * Check if the user has requested to interrupt a blocking function
  * associated with cb.
  */
 int ff_check_interrupt(AVIOInterruptCB *cb);
+
+/**
+ * Iterate over all available protocols.
+ *
+ * @param prev result of the previous call to this functions or NULL.
+ */
+URLProtocol *ffurl_protocol_next(const URLProtocol *prev);
 
 /* udp.c */
 int ff_udp_set_remote_url(URLContext *h, const char *uri);
@@ -320,8 +330,6 @@ void ff_make_absolute_url(char *buf, int size, const char *base,
  * @return entry or NULL on error
  */
 AVIODirEntry *ff_alloc_dir_entry(void);
-
-const AVClass *ff_urlcontext_child_class_next(const AVClass *prev);
 
 /**
  * Construct a list of protocols matching a given whitelist and/or blacklist.

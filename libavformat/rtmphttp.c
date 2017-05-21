@@ -129,7 +129,7 @@ static int rtmp_http_read(URLContext *h, uint8_t *buf, int size)
             } else {
                 if (rt->nb_bytes_read == 0) {
                     /* Wait 50ms before retrying to read a server reply in
-                     * order to reduce the number of idle requests. */
+                     * order to reduce the number of idle requets. */
                     av_usleep(50000);
                 }
 
@@ -208,7 +208,7 @@ static int rtmp_http_open(URLContext *h, const char *uri, int flags)
     }
 
     /* alloc the http context */
-    if ((ret = ffurl_alloc(&rt->stream, url, AVIO_FLAG_READ_WRITE, &h->interrupt_callback)) < 0)
+    if ((ret = ffurl_alloc(&rt->stream, url, AVIO_FLAG_READ_WRITE, NULL)) < 0)
         goto fail;
 
     /* set options */
@@ -219,14 +219,6 @@ static int rtmp_http_open(URLContext *h, const char *uri, int flags)
     av_opt_set(rt->stream->priv_data, "headers", headers, 0);
     av_opt_set(rt->stream->priv_data, "multiple_requests", "1", 0);
     av_opt_set_bin(rt->stream->priv_data, "post_data", "", 1, 0);
-
-    if (!rt->stream->protocol_whitelist && h->protocol_whitelist) {
-        rt->stream->protocol_whitelist = av_strdup(h->protocol_whitelist);
-        if (!rt->stream->protocol_whitelist) {
-            ret = AVERROR(ENOMEM);
-            goto fail;
-        }
-    }
 
     /* open the http context */
     if ((ret = ffurl_connect(rt->stream, NULL)) < 0)
@@ -273,7 +265,7 @@ static const AVClass ffrtmphttp_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-const URLProtocol ff_ffrtmphttp_protocol = {
+URLProtocol ff_ffrtmphttp_protocol = {
     .name           = "ffrtmphttp",
     .url_open       = rtmp_http_open,
     .url_read       = rtmp_http_read,
@@ -282,5 +274,4 @@ const URLProtocol ff_ffrtmphttp_protocol = {
     .priv_data_size = sizeof(RTMP_HTTPContext),
     .flags          = URL_PROTOCOL_FLAG_NETWORK,
     .priv_data_class= &ffrtmphttp_class,
-    .default_whitelist = "https,http,tcp,tls",
 };

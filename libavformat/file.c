@@ -337,7 +337,7 @@ static int file_close_dir(URLContext *h)
 #endif /* HAVE_LSTAT */
 }
 
-const URLProtocol ff_file_protocol = {
+URLProtocol ff_file_protocol = {
     .name                = "file",
     .url_open            = file_open,
     .url_read            = file_read,
@@ -383,7 +383,7 @@ static int pipe_open(URLContext *h, const char *filename, int flags)
     return 0;
 }
 
-const URLProtocol ff_pipe_protocol = {
+URLProtocol ff_pipe_protocol = {
     .name                = "pipe",
     .url_open            = pipe_open,
     .url_read            = file_read,

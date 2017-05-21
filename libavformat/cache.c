@@ -87,7 +87,7 @@ static int cache_open(URLContext *h, const char *arg, int flags, AVDictionary **
     av_freep(&buffername);
 
     return ffurl_open_whitelist(&c->inner, arg, flags, &h->interrupt_callback,
-                                options, h->protocol_whitelist, h->protocol_blacklist, h);
+                                options, h->protocol_whitelist);
 }
 
 static int add_entry(URLContext *h, const unsigned char *buf, int size)
@@ -319,7 +319,7 @@ static const AVClass cache_context_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-const URLProtocol ff_cache_protocol = {
+URLProtocol ff_cache_protocol = {
     .name                = "cache",
     .url_open2           = cache_open,
     .url_read            = cache_read,

@@ -109,7 +109,7 @@ static int data_read(URLContext *h, unsigned char *buf, int size)
     return size;
 }
 
-const URLProtocol ff_data_protocol = {
+URLProtocol ff_data_protocol = {
     .name           = "data",
     .url_open       = data_open,
     .url_close      = data_close,

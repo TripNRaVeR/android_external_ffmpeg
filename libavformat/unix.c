@@ -143,7 +143,7 @@ static int unix_get_file_handle(URLContext *h)
     return s->fd;
 }
 
-const URLProtocol ff_unix_protocol = {
+URLProtocol ff_unix_protocol = {
     .name                = "unix",
     .url_open            = unix_open,
     .url_read            = unix_read,

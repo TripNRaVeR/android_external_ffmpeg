@@ -814,7 +814,7 @@ static int parse_playlist(AVFormatContext *s, const char *url)
 
     if ((ret = ffio_open_whitelist(&in, url, AVIO_FLAG_READ,
                                    &s->interrupt_callback, NULL,
-                                   s->protocol_whitelist, s->protocol_blacklist)) < 0)
+                                   s->protocol_whitelist)) < 0)
         return ret;
 
     read_chomp_line(in, line, sizeof(line));

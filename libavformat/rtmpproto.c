@@ -1152,7 +1152,7 @@ static int rtmp_calc_swfhash(URLContext *s)
     /* Get the SWF player file. */
     if ((ret = ffurl_open_whitelist(&stream, rt->swfverify, AVIO_FLAG_READ,
                                     &s->interrupt_callback, NULL,
-                                    s->protocol_whitelist, s->protocol_blacklist, s)) < 0) {
+                                    s->protocol_whitelist)) < 0) {
         av_log(s, AV_LOG_ERROR, "Cannot open connection %s.\n", rt->swfverify);
         goto fail;
     }
@@ -2685,8 +2685,8 @@ static int rtmp_open(URLContext *s, const char *uri, int flags, AVDictionary **o
 
 reconnect:
     if ((ret = ffurl_open_whitelist(&rt->stream, buf, AVIO_FLAG_READ_WRITE,
-                                    &s->interrupt_callback, opts,
-                                    s->protocol_whitelist, s->protocol_blacklist, s)) < 0) {
+                                    &s->interrupt_callback, &opts,
+                                    s->protocol_whitelist)) < 0) {
         av_log(s , AV_LOG_ERROR, "Cannot open connection %s\n", buf);
         goto fail;
     }
@@ -3146,7 +3146,7 @@ static const AVClass flavor##_class = {          \
     .version    = LIBAVUTIL_VERSION_INT,         \
 };                                               \
                                                  \
-const URLProtocol ff_##flavor##_protocol = {     \
+URLProtocol ff_##flavor##_protocol = {           \
     .name           = #flavor,                   \
     .url_open2      = rtmp_open,                 \
     .url_read       = rtmp_read,                 \
